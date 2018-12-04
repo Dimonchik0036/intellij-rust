@@ -171,7 +171,7 @@ sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
         ArithmeticOp.REM, ArithmeticAssignmentOp.REMEQ -> mod(right)
         ArithmeticOp.MUL, ArithmeticAssignmentOp.MULEQ -> times(right)
         EqualityOp.EQ -> intersect(right)
-        EqualityOp.EXCLEQ -> subtract(right)
+        EqualityOp.EXCLEQ -> subtract(right).unite(right.subtract(this))
         is ComparisonOp -> intersect(right.fromRelation(op))
         else -> unknown()
     }

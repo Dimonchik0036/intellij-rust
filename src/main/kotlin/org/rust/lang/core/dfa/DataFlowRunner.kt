@@ -213,10 +213,11 @@ class DataFlowRunner(val function: RsFunction) {
         }
 
         val leftRange = LongRangeSet.fromDfaValue(leftValue) ?: return ThreeState.UNSURE
+        val rightRange = LongRangeSet.fromDfaValue(rightValue) ?: return ThreeState.UNSURE
         val resultRange = LongRangeSet.fromDfaValue(result) ?: return ThreeState.UNSURE
         return when {
             resultRange.isEmpty -> ThreeState.NO
-            resultRange.contains(leftRange) -> ThreeState.YES
+            resultRange.contains(leftRange) && resultRange.contains(rightRange) -> ThreeState.YES
             else -> ThreeState.UNSURE
         }
     }
