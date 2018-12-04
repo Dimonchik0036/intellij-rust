@@ -97,6 +97,8 @@ class DataFlowRunner(val function: RsFunction) {
         mergeStates(node, nextNode)
     }
 
+    private fun getStateWithCheck(index: Int): DfaMemoryState = states[index] ?: error("Index $index")
+
     private fun mergeStates(nodeFrom: CFGNode, nodeTo: CFGNode) {
         val currentState = states[nodeFrom.index] ?: return
         val nextState = states[nodeTo.index]
@@ -116,7 +118,7 @@ class DataFlowRunner(val function: RsFunction) {
     }
 
     private fun visitBinExpr(node: CFGNode, expr: RsBinaryExpr, visitor: NodeVisitor) {
-        val state = states[node.index] ?: error("Index ${node.index}")
+        val state = getStateWithCheck(node.index)
         when (expr.operatorType) {
             is AssignmentOp -> visitAssignmentBinOp(expr, state)
             is BoolOp -> {
@@ -135,7 +137,7 @@ class DataFlowRunner(val function: RsFunction) {
             return
         }
         val ifNode = visitor.getNodeFromElement(ifExpr) ?: error("couldn't find node for '${ifExpr.text}'")
-        val state = states[node.index] ?: error("Index ${node.index}")
+        val state = getStateWithCheck(node.index)
         val nodes = node.outgoingNodes
         val trueBranch = nodes.elementAt(1)
         val falseBranch = nodes.elementAt(0)
@@ -224,15 +226,29 @@ class DataFlowRunner(val function: RsFunction) {
 
 
     private fun visitLetDeclNode(node: CFGNode, element: RsLetDecl, visitor: NodeVisitor) {
-        val pat = (element.pat as? RsPatIdent)?.patBinding
-        if (pat != null) {
-            val expr = element.expr
-            val state = states[node.index] ?: error("Index ${node.index}")
-            val value = if (expr != null) valueFromExpr(expr, state) else valueFactory.createTypeValue(pat.type)
-            state.setVarValue(pat, value)
+        val pat = element.pat
+        when (pat) {
+            is RsPatIdent -> {
+                val state = getStateWithCheck(node.index)
+                val bin = pat.patBinding
+                val expr = element.expr
+                val value = if (expr != null) valueFromExpr(expr, state) else valueFactory.createTypeValue(bin.type)
+                state.setVarValue(bin, value)
+            }
+            is RsPatTup -> {
+                val state = getStateWithCheck(node.index)
+                val values = valuesFromTuple(element.expr, state)
+                pat.patList.forEachIndexed { index, it ->
+                    state.setVarValue((it as? RsPatIdent)?.patBinding, values.getOrElse(index) { DfaUnknownValue })
+                }
+            }
         }
-
         updateNextState(node, visitor)
+    }
+
+    private fun valuesFromTuple(element: RsExpr?, state: DfaMemoryState): List<DfaValue> {
+        val tuple = element as? RsTupleExpr ?: return emptyList()
+        return tuple.exprList.map { valueFromExpr(it, state) }
     }
 
     private fun getValueFromElement(element: RsPatBinding, state: DfaMemoryState): DfaValue = state.getValue(element)

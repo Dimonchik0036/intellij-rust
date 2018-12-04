@@ -16,8 +16,7 @@ typealias VariableState = DfaValue
 class DfaMemoryState(val factory: DfaValueFactory, val variableStates: HashMap<Variable, VariableState> = hashMapOf()) {
     val copy: DfaMemoryState get() = DfaMemoryState(factory, variableStates.clone() as HashMap<Variable, VariableState>)
 
-    fun setVarValue(variable: Variable, value: VariableState = DfaUnknownValue) {
-        variableStates[variable] = value
+    fun setVarValue(variable: Variable?, value: VariableState = DfaUnknownValue) { if (variable != null) variableStates[variable] = value
     }
 
     fun getValue(variable: Variable): VariableState = variableStates[variable] ?: DfaUnknownValue
