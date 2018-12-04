@@ -5,6 +5,7 @@
 
 package org.rust.ide.inspections
 
+import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemsHolder
 import org.rust.ide.utils.skipParenExprDown
 import org.rust.lang.core.cfg.ControlFlowGraph.Companion.buildFor
@@ -21,23 +22,23 @@ class RsConstantConditionInspection : RsLocalInspectionTool() {
                 val cfg = buildFor(block)
                 println(cfg.createDotDescription())
                 val runner = DataFlowRunner(o)
-                val result = runner.analyze
+                val result = runner.analyze()
                 when (result) {
                     RunnerResult.OK -> createDescription(holder, runner)
-                    else -> holder.registerProblem(o, "Couldn't analyze function $result")
+                    else -> holder.registerProblem(o, "Couldn't analyze function $result", ProblemHighlightType.WARNING)
                 }
             }
 
             override fun visitIfExpr(o: RsIfExpr) {
                 val condition = o.condition?.skipParenExprDown() as? RsLitExpr ?: return
                 val boolLit = condition.boolLiteral ?: return
-                holder.registerProblem(condition, "Condition is always `${boolLit.text}`")
+                holder.registerProblem(condition, "Condition is always `${boolLit.text}`", ProblemHighlightType.WARNING)
             }
 
             override fun visitWhileExpr(o: RsWhileExpr) {
                 val condition = o.condition?.skipParenExprDown() as? RsLitExpr ?: return
                 if (condition.textMatches("false")) {
-                    holder.registerProblem(condition, "Condition is always false")
+                    holder.registerProblem(condition, "Condition is always false", ProblemHighlightType.WARNING)
                 }
             }
         }
@@ -55,10 +56,10 @@ private fun createDescription(holder: ProblemsHolder, runner: DataFlowRunner) {
 private fun addStates(holder: ProblemsHolder, state: DfaMemoryState?) {
     if (state == null) return
     state.variableStates.forEach {
-        holder.registerProblem(it.key, "Value is '${it.value}'")
+        holder.registerProblem(it.key, "Value is '${it.value}'", ProblemHighlightType.WEAK_WARNING)
     }
 }
 
 private fun registerConstantBoolean(holder: ProblemsHolder, expr: RsExpr, value: Boolean) {
-    holder.registerProblem(expr, "Condition '${expr.text}' is always '$value'")
+    holder.registerProblem(expr, "Condition '${expr.text}' is always '$value'", ProblemHighlightType.WARNING)
 }

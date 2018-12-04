@@ -16,21 +16,20 @@ typealias VariableState = DfaValue
 class DfaMemoryState(val factory: DfaValueFactory, val variableStates: HashMap<Variable, VariableState> = hashMapOf()) {
     val copy: DfaMemoryState get() = DfaMemoryState(factory, variableStates.clone() as HashMap<Variable, VariableState>)
 
-    fun setVarValue(variable: Variable?, value: VariableState = DfaUnknownValue) { if (variable != null) variableStates[variable] = value
+    fun setVarValue(variable: Variable?, value: VariableState = DfaUnknownValue) {
+        if (variable != null) variableStates[variable] = value
     }
 
-    fun getValue(variable: Variable): VariableState = variableStates[variable] ?: DfaUnknownValue
+    operator fun get(variable: Variable): VariableState = variableStates[variable] ?: DfaUnknownValue
 
-    fun contain(variable: Variable): Boolean = variableStates.containsKey(variable)
+    operator fun contains(variable: Variable): Boolean = variableStates.containsKey(variable)
 
     fun merge(other: DfaMemoryState): DfaMemoryState {
-        other.variableStates.forEach { variable, state -> apply(variable, state) }
+        other.variableStates.forEach { variable, state ->
+            val oldValue = get(variable)
+            setVarValue(variable, oldValue.unite(state))
+        }
         return this
-    }
-
-    fun apply(variable: Variable, value: VariableState) {
-        val oldValue = getValue(variable)
-        setVarValue(variable, oldValue.unite(value))
     }
 
     override fun hashCode(): Int = variableStates.hashCode()

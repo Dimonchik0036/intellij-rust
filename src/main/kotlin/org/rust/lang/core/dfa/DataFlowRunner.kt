@@ -35,7 +35,7 @@ class DataFlowRunner(val function: RsFunction) {
     }
 
     val constantConditionalExpression
-        get(): Pair<Set<BinOpInstruction>, Set<BinOpInstruction>> {
+        get(): DfaResult {
             val trueSet = mutableSetOf<BinOpInstruction>()
             val falseSet = mutableSetOf<BinOpInstruction>()
             instructions.forEach {
@@ -47,20 +47,19 @@ class DataFlowRunner(val function: RsFunction) {
                     }
                 }
             }
-            return Pair(trueSet, falseSet)
+            return DfaResult(trueSet, falseSet)
         }
 
-    val analyze: RunnerResult
-        get() {
-            try {
-                val visitor = NodeVisitor(function.block ?: return RunnerResult.NOT_APPLICABLE)
-                lineVisit(visitor)
-                myUnvisitedExpr = visitor.unvisitedNodes
-                return RunnerResult.OK
-            } catch (e: Exception) {
-                return RunnerResult.NOT_APPLICABLE
-            }
+    fun analyze(): RunnerResult {
+        try {
+            val visitor = NodeVisitorState(function.block ?: return RunnerResult.NOT_APPLICABLE)
+            lineVisit(visitor)
+            myUnvisitedExpr = visitor.unvisitedNodes
+            return RunnerResult.OK
+        } catch (e: Exception) {
+            return RunnerResult.NOT_APPLICABLE
         }
+    }
 
     private fun initFunctionParameters() {
         val state = createMemoryState
@@ -77,23 +76,23 @@ class DataFlowRunner(val function: RsFunction) {
     /***
      * @param endIndex 1 is index of [org.rust.lang.core.cfg.CFGNodeData.Exit] node
      */
-    private fun lineVisit(visitor: NodeVisitor, endIndex: Int = 1) {
+    private fun lineVisit(visitorState: NodeVisitorState, endIndex: Int = 1) {
         while (true) {
-            val node = visitor.nextNode()
+            val node = visitorState.nextNode()
             if (node == null || node.index == endIndex) return
             with(node.data) {
                 when {
-                    this is CFGNodeData.AST && this.element != null -> visitAstNode(this.element, node, visitor)
-                    this is CFGNodeData.Dummy -> visitDummyNode(node, visitor)
-                    else -> updateNextState(node, visitor)
+                    this is CFGNodeData.AST && this.element != null -> visitAstNode(this.element, node, visitorState)
+                    this is CFGNodeData.Dummy -> visitDummyNode(node, visitorState)
+                    else -> updateNextState(node, visitorState)
                 }
             }
         }
     }
 
-    private fun updateNextState(node: CFGNode, visitor: NodeVisitor, nextNode: CFGNode? = node.firstOutNode) {
+    private fun updateNextState(node: CFGNode, visitorState: NodeVisitorState, nextNode: CFGNode? = node.firstOutNode) {
         if (nextNode == null) return
-        visitor.addNode(nextNode)
+        visitorState.addNode(nextNode)
         mergeStates(node, nextNode)
     }
 
@@ -111,32 +110,32 @@ class DataFlowRunner(val function: RsFunction) {
     }
 
 
-    private fun visitAstNode(element: RsElement, node: CFGNode, visitor: NodeVisitor) = when (element) {
-        is RsLetDecl -> visitLetDeclNode(node, element, visitor)
-        is RsBinaryExpr -> visitBinExpr(node, element, visitor)
-        else -> updateNextState(node, visitor)
+    private fun visitAstNode(element: RsElement, node: CFGNode, visitorState: NodeVisitorState) = when (element) {
+        is RsLetDecl -> visitLetDeclNode(node, element, visitorState)
+        is RsBinaryExpr -> visitBinExpr(node, element, visitorState)
+        else -> updateNextState(node, visitorState)
     }
 
-    private fun visitBinExpr(node: CFGNode, expr: RsBinaryExpr, visitor: NodeVisitor) {
+    private fun visitBinExpr(node: CFGNode, expr: RsBinaryExpr, visitorState: NodeVisitorState) {
         val state = getStateWithCheck(node.index)
         when (expr.operatorType) {
             is AssignmentOp -> visitAssignmentBinOp(expr, state)
             is BoolOp -> {
-                visitBoolBinExpr(expr, node, visitor)
+                visitBoolBinExpr(expr, node, visitorState)
                 return
             }
         }
-        updateNextState(node, visitor)
+        updateNextState(node, visitorState)
     }
 
-    private fun visitBoolBinExpr(expr: RsBinaryExpr, node: CFGNode, visitor: NodeVisitor) {
+    private fun visitBoolBinExpr(expr: RsBinaryExpr, node: CFGNode, visitorState: NodeVisitorState) {
         val condition = expr.skipParenExprUp().parent as? RsCondition
         val ifExpr = condition?.parent as? RsIfExpr
         if (ifExpr == null) {
-            updateNextState(node, visitor)
+            updateNextState(node, visitorState)
             return
         }
-        val ifNode = visitor.getNodeFromElement(ifExpr) ?: error("couldn't find node for '${ifExpr.text}'")
+        val ifNode = visitorState.getNodeFromElement(ifExpr) ?: error("couldn't find node for '${ifExpr.text}'")
         val state = getStateWithCheck(node.index)
         val nodes = node.outgoingNodes
         val trueBranch = nodes.elementAt(1)
@@ -148,26 +147,26 @@ class DataFlowRunner(val function: RsFunction) {
         val value = tryEvaluateExpr(expr, state)
         when (value) {
             ThreeState.YES -> {
-                updateNextState(node, visitor, trueBranch)
+                updateNextState(node, visitorState, trueBranch)
                 isFalseReachable = false
             }
             ThreeState.NO -> {
-                updateNextState(node, visitor, falseBranch)
+                updateNextState(node, visitorState, falseBranch)
                 isTrueReachable = false
             }
             ThreeState.UNSURE -> {
-                visitBranch(trueBranch, state.copy, visitor, ifNode.index)
-                visitBranch(falseBranch, state, visitor, ifNode.index)
-                updateNextState(ifNode, visitor)
+                visitBranch(trueBranch, state.copy, visitorState, ifNode.index)
+                visitBranch(falseBranch, state, visitorState, ifNode.index)
+                updateNextState(ifNode, visitorState)
             }
         }
         instructions += BinOpInstruction(isTrueReachable, isFalseReachable, expr)
     }
 
-    private fun visitBranch(node: CFGNode, state: DfaMemoryState, visitor: NodeVisitor, endIndex: Int) {
+    private fun visitBranch(node: CFGNode, state: DfaMemoryState, visitorState: NodeVisitorState, endIndex: Int) {
         states.put(node.index, state)
-        visitor.addNode(node)
-        lineVisit(visitor, endIndex)
+        visitorState.addNode(node)
+        lineVisit(visitorState, endIndex)
     }
 
     private fun tryEvaluateExpr(expr: RsExpr?, state: DfaMemoryState): ThreeState {
@@ -225,7 +224,7 @@ class DataFlowRunner(val function: RsFunction) {
     }
 
 
-    private fun visitLetDeclNode(node: CFGNode, element: RsLetDecl, visitor: NodeVisitor) {
+    private fun visitLetDeclNode(node: CFGNode, element: RsLetDecl, visitorState: NodeVisitorState) {
         val pat = element.pat
         when (pat) {
             is RsPatIdent -> {
@@ -243,7 +242,7 @@ class DataFlowRunner(val function: RsFunction) {
                 }
             }
         }
-        updateNextState(node, visitor)
+        updateNextState(node, visitorState)
     }
 
     private fun valuesFromTuple(element: RsExpr?, state: DfaMemoryState): List<DfaValue> {
@@ -251,7 +250,7 @@ class DataFlowRunner(val function: RsFunction) {
         return tuple.exprList.map { valueFromExpr(it, state) }
     }
 
-    private fun getValueFromElement(element: RsPatBinding, state: DfaMemoryState): DfaValue = state.getValue(element)
+    private fun getValueFromElement(element: RsPatBinding, state: DfaMemoryState): DfaValue = state.get(element)
 
     private fun valueFromExpr(expr: RsExpr?, state: DfaMemoryState): DfaValue {
         val expr = expr?.skipParenExprDown() ?: return DfaUnknownValue
@@ -273,7 +272,7 @@ class DataFlowRunner(val function: RsFunction) {
 
 
     private fun valueFromPathExpr(expr: RsPathExpr, state: DfaMemoryState): DfaValue {
-        val variable = expr.toVariable ?: return DfaUnknownValue
+        val variable = expr.toVariable() ?: return DfaUnknownValue
         return getValueFromElement(variable, state)
     }
 
@@ -313,49 +312,49 @@ class DataFlowRunner(val function: RsFunction) {
     }
 
     private fun variable(expr: RsExpr, state: DfaMemoryState): Variable {
-        val variable = expr.toVariable
-        if (variable == null || !state.contain(variable)) error("Couldn't find variable '${variable?.text}'")
+        val variable = expr.toVariable()
+        if (variable == null || variable !in state) error("Couldn't find variable '${variable?.text}'")
         return variable
     }
 
-    private fun visitDummyNode(node: CFGNode, visitor: NodeVisitor) {
-        val nextNode = visitor.getNode(node.index + 1)
+    private fun visitDummyNode(node: CFGNode, visitorState: NodeVisitorState) {
+        val nextNode = visitorState.getNode(node.index + 1)
         val element = nextNode.data.element
         when (element) {
-            is RsLoopExpr -> visitLoop(node, nextNode, visitor)
-            is RsWhileExpr -> visitWhile(node, nextNode, visitor)
-            is RsForExpr -> visitFor(node, nextNode, visitor)
-            else -> updateNextState(node, visitor)
+            is RsLoopExpr -> visitLoop(node, nextNode, visitorState)
+            is RsWhileExpr -> visitWhile(node, nextNode, visitorState)
+            is RsForExpr -> visitFor(node, nextNode, visitorState)
+            else -> updateNextState(node, visitorState)
         }
     }
 
-    private fun visitLoop(dummyNode: CFGNode, loopNode: CFGNode, visitor: NodeVisitor) {
-        updateNextState(dummyNode, visitor)
-        lineVisit(visitor, dummyNode.index)
+    private fun visitLoop(dummyNode: CFGNode, loopNode: CFGNode, visitorState: NodeVisitorState) {
+        updateNextState(dummyNode, visitorState)
+        lineVisit(visitorState, dummyNode.index)
     }
 
-    private fun visitWhile(dummyNode: CFGNode, whileNode: CFGNode, visitor: NodeVisitor) {
-        updateNextState(dummyNode, visitor)
+    private fun visitWhile(dummyNode: CFGNode, whileNode: CFGNode, visitorState: NodeVisitorState) {
+        updateNextState(dummyNode, visitorState)
         val inNode = whileNode.firstInNode ?: error("couldn't")
-        lineVisit(visitor, inNode.index)
+        lineVisit(visitorState, inNode.index)
         mergeStates(inNode, whileNode)
         // TODO: check expr and visit block
-        updateNextState(whileNode, visitor)
+        updateNextState(whileNode, visitorState)
     }
 
     //TODO: check expr return
-    private fun visitFor(dummyNode: CFGNode, forNode: CFGNode, visitor: NodeVisitor) {
-        updateNextState(dummyNode, visitor)
+    private fun visitFor(dummyNode: CFGNode, forNode: CFGNode, visitorState: NodeVisitorState) {
+        updateNextState(dummyNode, visitorState)
         val inNode = forNode.firstInNode ?: error("couldn't")
-        lineVisit(visitor, inNode.index)
+        lineVisit(visitorState, inNode.index)
         mergeStates(inNode, forNode)
         // TODO: check expr and visit block
-        updateNextState(forNode, visitor)
+        updateNextState(forNode, visitorState)
     }
 }
 
-private class NodeVisitor(block: RsBlock) {
-    private val visited = mutableSetOf<CFGNode>()
+private class NodeVisitorState(block: RsBlock) {
+    private val visited = hashSetOf<CFGNode>()
     private val cfg = buildFor(block)
     private val table = cfg.buildLocalIndex()
     private val queue = PriorityQueue<CFGNode>(compareBy { it.index })
@@ -400,4 +399,4 @@ private fun createSequence(block: RsBlock): Sequence<CFGNode> {
     return resultSequence.asSequence()
 }
 
-private val RsExpr.toVariable: RsPatBinding? get() = if (this is RsPathExpr) this.path.reference.resolve() as? RsPatBinding else null
+private fun RsExpr.toVariable(): RsPatBinding? = if (this is RsPathExpr) this.path.reference.resolve() as? RsPatBinding else null

@@ -62,12 +62,6 @@ abstract class DfaFactType<T> constructor(val name: String) : Key<T>("DfaFactTyp
             }
         }
 
-        val LOCALITY: DfaFactType<Boolean> = object : DfaFactType<Boolean>("Locality") {
-            override fun isUnknown(fact: Boolean): Boolean = !fact
-
-            override fun toString(fact: Boolean): String = if (fact) "local object" else ""
-        }
-
-        val types: List<DfaFactType<*>> = listOf(RANGE, LOCALITY)
+        val types: List<DfaFactType<*>> = listOf(RANGE)
     }
 }
