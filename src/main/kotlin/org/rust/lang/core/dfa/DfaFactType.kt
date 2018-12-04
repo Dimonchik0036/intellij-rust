@@ -43,7 +43,7 @@ abstract class DfaFactType<T> constructor(val name: String) : Key<T>("DfaFactTyp
 
     companion object {
         /**
-         * This fact is applied to the integral values (of types byte, char, short, int, long).
+         * This fact is applied to the integral values (of types i8, u8, i16, etc.).
          * Its value represents a range of possible values.
          */
         val RANGE: DfaFactType<LongRangeSet> = object : DfaFactType<LongRangeSet>("Range") {

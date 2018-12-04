@@ -15,7 +15,7 @@ class DfaFactMapValue(factory: DfaValueFactory, private val facts: DfaFactMap) :
     operator fun <T> get(factType: DfaFactType<T>): T? = facts[factType]
 
     override val type: Ty? get() = get(DfaFactType.RANGE)?.type
-    override val minus: DfaValue get() = factory.factFactory.createValue(facts.with(DfaFactType.RANGE, get(DfaFactType.RANGE)?.minus))
+    override val minus: DfaValue get() = factory.factFactory.createValue(facts.with(DfaFactType.RANGE, get(DfaFactType.RANGE)?.unaryMinus()))
     override fun toString(): String = facts.toString()
 }
 

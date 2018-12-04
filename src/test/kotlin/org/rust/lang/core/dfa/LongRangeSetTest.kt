@@ -286,35 +286,35 @@ class LongRangeSetTest : RsTestBase() {
 //        assertEquals("{101..599, 701..1000}", set.abs.toString())
 //    }
 //
-//    fun `test minus`() {
-//        assertTrue(empty().minus.isEmpty)
-//        assertEquals(point(RsRanges.MAX_VALUE), point(RsRanges.MIN_VALUE + 1).minus)
-//        assertEquals(point(RsRanges.MIN_VALUE), point(RsRanges.MIN_VALUE).minus)
-//        assertEquals(point(Integer.MIN_VALUE.toLong()), point(Integer.MIN_VALUE.toLong()).minus)
+//    fun `test unaryMinus`() {
+//        assertTrue(empty().unaryMinus.isEmpty)
+//        assertEquals(point(RsRanges.MAX_VALUE), point(RsRanges.MIN_VALUE + 1).unaryMinus)
+//        assertEquals(point(RsRanges.MIN_VALUE), point(RsRanges.MIN_VALUE).unaryMinus)
+//        assertEquals(point(Integer.MIN_VALUE.toLong()), point(Integer.MIN_VALUE.toLong()).unaryMinus)
 //        assertEquals(
 //            point(Integer.MAX_VALUE + 1L, TyInteger.I64),
-//            point(Integer.MIN_VALUE.toLong(), TyInteger.I64).minus
+//            point(Integer.MIN_VALUE.toLong(), TyInteger.I64).unaryMinus
 //        )
-//        assertEquals(range(-200, -100), range(100, 200).minus)
-//        assertEquals(range(-200, 1), range(-1, 200).minus)
-//        assertEquals(range(-200, 200), range(-200, 200).minus)
-//        assertEquals(range(-200, 201), range(-201, 200).minus)
-//        assertEquals(all(), all().minus)
+//        assertEquals(range(-200, -100), range(100, 200).unaryMinus)
+//        assertEquals(range(-200, 1), range(-1, 200).unaryMinus)
+//        assertEquals(range(-200, 200), range(-200, 200).unaryMinus)
+//        assertEquals(range(-200, 201), range(-201, 200).unaryMinus)
+//        assertEquals(all(), all().unaryMinus)
 //        assertEquals(
 //            range(100, Integer.MAX_VALUE.toLong()).union(point(Integer.MIN_VALUE.toLong())),
-//            range(Integer.MIN_VALUE.toLong(), -100).minus
+//            range(Integer.MIN_VALUE.toLong(), -100).unaryMinus
 //        )
 //        assertEquals(
 //            point(RsRanges.MAX_VALUE, TyInteger.I64).union(point(RsRanges.MIN_VALUE, TyInteger.I64)),
-//            range(RsRanges.MIN_VALUE, RsRanges.MIN_VALUE + 1, TyInteger.I64).minus
+//            range(RsRanges.MIN_VALUE, RsRanges.MIN_VALUE + 1, TyInteger.I64).unaryMinus
 //        )
 //        assertEquals(
 //            range(100, Integer.MAX_VALUE + 1L, TyInteger.I64),
-//            range(Integer.MIN_VALUE.toLong(), -100, TyInteger.I64).minus
+//            range(Integer.MIN_VALUE.toLong(), -100, TyInteger.I64).unaryMinus
 //        )
 //        val set = range(-900, 1000).subtract(range(-800, -600)).subtract(range(-300, 100)).subtract(range(500, 700))
 //        assertEquals("{-900..-801, -599..-301, 101..499, 701..1000}", set.toString())
-//        assertEquals("{-1000..-701, -499..-101, 301..599, 801..900}", set.minus.toString())
+//        assertEquals("{-1000..-701, -499..-101, 301..599, 801..900}", set.unaryMinus.toString())
 //    }
 //
 //    fun `test mod`() {

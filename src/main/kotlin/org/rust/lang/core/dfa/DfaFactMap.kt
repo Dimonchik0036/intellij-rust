@@ -41,10 +41,6 @@ class DfaFactMap private constructor(private val myMap: KeyFMap) {
      * @return true if this fact map is a super-state of supplied fact map.
      */
     fun isSuperStateOf(subMap: DfaFactMap): Boolean {
-        // absent fact is not always a superstate of present fact
-        // e.g. absent NULLABILITY means that nullability is unknown,
-        // but NULLABILITY=NULLABLE means that value is definitely nullable and we should warn about nullability violation if any
-        // so the (NULLABILITY=NULLABLE) state cannot be superseded by (NULLABILITY=null) state
         for (key in DfaFactType.types) {
             val type = key as DfaFactType<Any>
             val thisValue = myMap.get(type)

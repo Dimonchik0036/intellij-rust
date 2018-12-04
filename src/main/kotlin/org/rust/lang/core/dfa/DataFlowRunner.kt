@@ -5,6 +5,7 @@
 
 package org.rust.lang.core.dfa
 
+import com.intellij.util.containers.Queue
 import org.jetbrains.coverage.gnu.trove.TIntObjectHashMap
 import org.rust.ide.utils.skipParenExprDown
 import org.rust.ide.utils.skipParenExprUp
@@ -23,7 +24,7 @@ import java.util.*
 class DataFlowRunner(val function: RsFunction) {
     private val valueFactory: DfaValueFactory = DfaValueFactory()
     private val createMemoryState: DfaMemoryState get() = DfaMemoryState(valueFactory)
-    private val instructions = mutableSetOf<BinOpInstruction>()
+    private val instructions = hashSetOf<BinOpInstruction>()
     private val states = TIntObjectHashMap<DfaMemoryState>()
     private var myUnvisitedExpr: Sequence<CFGNode> = emptySequence()
     val unvisitedExpr: Sequence<RsElement> get() = myUnvisitedExpr.mapNotNull { it.data.element }
@@ -36,8 +37,8 @@ class DataFlowRunner(val function: RsFunction) {
 
     val constantConditionalExpression
         get(): DfaResult {
-            val trueSet = mutableSetOf<BinOpInstruction>()
-            val falseSet = mutableSetOf<BinOpInstruction>()
+            val trueSet = hashSetOf<BinOpInstruction>()
+            val falseSet = hashSetOf<BinOpInstruction>()
             instructions.forEach {
                 if (!it.isConst) {
                     if (it.isTrueReachable && !it.isFalseReachable) {
@@ -218,7 +219,7 @@ class DataFlowRunner(val function: RsFunction) {
         val resultRange = LongRangeSet.fromDfaValue(result) ?: return ThreeState.UNSURE
         return when {
             resultRange.isEmpty -> ThreeState.NO
-            resultRange.contains(leftRange) && resultRange.contains(rightRange) -> ThreeState.YES
+            leftRange in resultRange && rightRange in resultRange -> ThreeState.YES
             else -> ThreeState.UNSURE
         }
     }
@@ -357,21 +358,20 @@ private class NodeVisitorState(block: RsBlock) {
     private val visited = hashSetOf<CFGNode>()
     private val cfg = buildFor(block)
     private val table = cfg.buildLocalIndex()
-    private val queue = PriorityQueue<CFGNode>(compareBy { it.index })
+    private val queue = Queue<CFGNode>(2)
     val unvisitedNodes: Sequence<CFGNode> get() = cfg.graph.depthFirstTraversal(cfg.entry).filter { it !in visited }
 
     init {
-        queue.add(cfg.entry)
+        queue.addLast(cfg.entry)
     }
 
     fun nextNode(): CFGNode? {
-        val node = queue.poll() ?: return null
-        visited.add(node)
+        val node = queue.pullFirst() ?: return null
+        visited += node
         return node
     }
 
-    fun addNode(node: CFGNode): Boolean = queue.add(node)
-    fun addAllNodes(nodes: Collection<CFGNode>): Boolean = queue.addAll(nodes)
+    fun addNode(node: CFGNode): Unit = queue.addLast(node)
 
     fun getNode(index: Int): CFGNode = cfg.graph.getNode(index)
     fun getNodeFromElement(element: RsElement): CFGNode? = table[element]?.first()
@@ -384,7 +384,7 @@ val CFGNode.firstInNode: CFGNode? get() = this.firstInEdge?.source
 
 private fun createSequence(block: RsBlock): Sequence<CFGNode> {
     val cfg = buildFor(block)
-    val visited = mutableSetOf<CFGNode>()
+    val visited = hashSetOf<CFGNode>()
     val resultSequence = mutableListOf<CFGNode>()
     val queue = PriorityQueue<CFGNode>(compareBy { it.index })
     queue.add(cfg.entry)
