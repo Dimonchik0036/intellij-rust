@@ -235,10 +235,12 @@ fun RsExpr.skipParenExprUp(): RsExpr {
  *
  * @return a child expression without parentheses.
  */
-fun RsCondition.skipParenExprDown(): RsExpr {
-    var child = this.expr
-    while (child is RsParenExpr) {
-        child = child.expr
+fun RsCondition.skipParenExprDown(): RsExpr = this.expr.skipParenExprDown()
+
+fun RsExpr.skipParenExprDown(): RsExpr {
+    var element = this
+    while (element is RsParenExpr) {
+        element = element.expr
     }
-    return child
+    return element
 }
