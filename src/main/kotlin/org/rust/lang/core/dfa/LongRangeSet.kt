@@ -175,10 +175,24 @@ sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
         ArithmeticOp.SUB, ArithmeticAssignmentOp.MINUSEQ -> minus(right)
         ArithmeticOp.REM, ArithmeticAssignmentOp.REMEQ -> rem(right)
         ArithmeticOp.MUL, ArithmeticAssignmentOp.MULEQ -> times(right)
-        EqualityOp.EQ -> intersect(right)
-        EqualityOp.EXCLEQ -> subtract(right).unite(right.subtract(this))
-        is ComparisonOp -> right.fromRelation(op).intersect(this).unite(this.fromRelation(op.mirror).intersect(right))
+        is BoolOp -> {
+            val (l, r) = compare(op, right)
+            l.unite(r)
+        }
         else -> unknown()
+    }
+
+    fun compare(op: BoolOp, right: LongRangeSet): Pair<LongRangeSet, LongRangeSet> = when(op) {
+        EqualityOp.EQ -> {
+            val res = intersect(right)
+            res to res
+        }
+        EqualityOp.EXCLEQ -> subtract(right) to right.subtract(this)
+        ComparisonOp.LT -> less(right) to right.more(this)
+        ComparisonOp.LTEQ -> lessOrEqual(right) to right.moreOrEqual(this)
+        ComparisonOp.GT -> more(right) to right.less(this)
+        ComparisonOp.GTEQ -> moreOrEqual(right) to right.lessOrEqual(this)
+        else -> unknown() to unknown()
     }
 
 

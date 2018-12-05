@@ -21,7 +21,7 @@ abstract class DfaValue(valueFactory: DfaValueFactory?) {
 
     open val invert: DfaValue = DfaUnknownValue
 
-    val isUnknown: Boolean get() = this is DfaUnknownValue
+    open val isUnknown: Boolean get() = this is DfaUnknownValue
 
     override fun equals(other: Any?): Boolean = other is DfaValue && id == other.id
 
@@ -29,7 +29,7 @@ abstract class DfaValue(valueFactory: DfaValueFactory?) {
 
     fun unite(other: DfaValue): DfaValue {
         if (this == other) return this
-        if (this is DfaUnknownValue || other is DfaUnknownValue) return DfaUnknownValue
+        if (this.isUnknown || other.isUnknown) return DfaUnknownValue
         return factory.factFactory.createValue(DfaFactMap.fromDfaValue(this).unite(DfaFactMap.fromDfaValue(other)))
     }
 }
