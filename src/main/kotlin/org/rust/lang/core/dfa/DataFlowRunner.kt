@@ -5,6 +5,7 @@
 
 package org.rust.lang.core.dfa
 
+import com.intellij.util.ThreeState
 import com.intellij.util.containers.Queue
 import org.jetbrains.coverage.gnu.trove.TIntObjectHashMap
 import org.rust.ide.utils.skipParenExprDown
@@ -167,8 +168,8 @@ class DataFlowRunner(val function: RsFunction) {
                 isTrueReachable = false
             }
             ThreeState.UNSURE -> {
-                visitBranch(trueBranch, trueState, visitorState, ifNode.index+1)
-                visitBranch(falseBranch, falseState, visitorState, ifNode.index+1)
+                visitBranch(trueBranch, trueState, visitorState, ifNode.index + 1)
+                visitBranch(falseBranch, falseState, visitorState, ifNode.index + 1)
                 updateNextState(ifNode, visitorState)
             }
         }
@@ -185,17 +186,17 @@ class DataFlowRunner(val function: RsFunction) {
         val expr = expr?.skipParenExprDown() ?: return ThreeState.UNSURE
         return when (expr) {
             is RsLitExpr -> tryEvaluateLitExpr(expr)
-            is RsUnaryExpr -> tryEvaluateUnaryExpr(expr, state,resultState)
-            is RsBinaryExpr -> tryEvaluateBinExpr(expr, state,resultState)
+            is RsUnaryExpr -> tryEvaluateUnaryExpr(expr, state, resultState)
+            is RsBinaryExpr -> tryEvaluateBinExpr(expr, state, resultState)
             else -> ThreeState.UNSURE
         }
     }
 
-    private fun tryEvaluateLitExpr(expr: RsLitExpr): ThreeState = ThreeState.fromBool((expr.kind as? RsLiteralKind.Boolean)?.value)
+    private fun tryEvaluateLitExpr(expr: RsLitExpr): ThreeState = fromBool((expr.kind as? RsLiteralKind.Boolean)?.value)
 
     private fun tryEvaluateUnaryExpr(expr: RsUnaryExpr, state: DfaMemoryState, resultState: DfaMemoryState): ThreeState {
         if (expr.excl == null) return ThreeState.UNSURE
-        return tryEvaluateExpr(expr.expr, state,resultState).not
+        return tryEvaluateExpr(expr.expr, state, resultState).not
     }
 
     private fun tryEvaluateBinExpr(expr: RsBinaryExpr, state: DfaMemoryState, resultState: DfaMemoryState): ThreeState {
@@ -222,7 +223,7 @@ class DataFlowRunner(val function: RsFunction) {
         val rightValue = valueFromExpr(expr.right, state)
         val value = valueFromConstValue(op, leftValue, rightValue)
         if (value != null) {
-            return ThreeState.fromBool((value as? DfaConstValue)?.value as? Boolean)
+            return fromBool((value as? DfaConstValue)?.value as? Boolean)
         }
 
         val leftRange = LongRangeSet.fromDfaValue(leftValue) ?: return ThreeState.UNSURE
@@ -231,7 +232,7 @@ class DataFlowRunner(val function: RsFunction) {
         uniteState(expr.left.toVariable(), valueFactory.createRange(leftResult), resultState)
         uniteState(expr.right?.toVariable(), valueFactory.createRange(rightResult), resultState)
 
-        val  resultRange = leftResult.unite(rightResult)
+        val resultRange = leftResult.unite(rightResult)
         return when {
             resultRange.isEmpty -> ThreeState.NO
             leftRange in resultRange && rightRange in resultRange -> ThreeState.YES
