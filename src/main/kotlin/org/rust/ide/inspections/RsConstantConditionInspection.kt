@@ -13,6 +13,7 @@ import org.rust.lang.core.dfa.DataFlowRunner
 import org.rust.lang.core.dfa.DfaMemoryState
 import org.rust.lang.core.dfa.RunnerResult
 import org.rust.lang.core.psi.*
+import org.rust.lang.core.psi.ext.RsElement
 
 class RsConstantConditionInspection : RsLocalInspectionTool() {
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean) =
@@ -49,6 +50,7 @@ private fun createDescription(holder: ProblemsHolder, runner: DataFlowRunner) {
     trueSet.forEach { registerConstantBoolean(holder, it.anchor, true) }
     falseSet.forEach { registerConstantBoolean(holder, it.anchor, false) }
 
+    registerUnreachableCode(holder, runner.unvisitedElements)
     //dor debug
     addStates(holder, runner.resultState)
 }
@@ -59,6 +61,13 @@ private fun addStates(holder: ProblemsHolder, state: DfaMemoryState?) {
         holder.registerProblem(it.key, "Value is '${it.value}'", ProblemHighlightType.WEAK_WARNING)
     }
 }
+
+private fun registerUnreachableCode(holder: ProblemsHolder, elements: Set<RsElement>) =
+    elements
+        .filter { element -> elements.indexOfFirst { element != it && element in it } == -1 }
+        .forEach { holder.registerProblem(it, "Unreachable code", ProblemHighlightType.WEAK_WARNING) }
+
+private operator fun RsElement.contains(other: RsElement): Boolean = other.textRange in this.textRange
 
 private fun registerConstantBoolean(holder: ProblemsHolder, expr: RsExpr, value: Boolean) {
     holder.registerProblem(expr, "Condition '${expr.text}' is always '$value'", ProblemHighlightType.WARNING)

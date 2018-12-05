@@ -26,8 +26,8 @@ class DataFlowRunner(val function: RsFunction) {
     private val createMemoryState: DfaMemoryState get() = DfaMemoryState(valueFactory)
     private val instructions = hashSetOf<BinOpInstruction>()
     private val states = TIntObjectHashMap<DfaMemoryState>()
-    private var myUnvisitedExpr: Sequence<CFGNode> = emptySequence()
-    val unvisitedExpr: Sequence<RsElement> get() = myUnvisitedExpr.mapNotNull { it.data.element }
+    var unvisitedElements: Set<RsElement> = emptySet()
+        private set
     //for debug
     var resultState: DfaMemoryState? = null
 
@@ -55,7 +55,7 @@ class DataFlowRunner(val function: RsFunction) {
         try {
             val visitor = NodeVisitorState(function.block ?: return RunnerResult.NOT_APPLICABLE)
             lineVisit(visitor)
-            myUnvisitedExpr = visitor.unvisitedNodes
+            unvisitedElements = visitor.unvisitedElements
             return RunnerResult.OK
         } catch (e: Exception) {
             return RunnerResult.NOT_APPLICABLE
@@ -303,7 +303,7 @@ class DataFlowRunner(val function: RsFunction) {
 
         val leftRange = LongRangeSet.fromDfaValue(left) ?: return DfaUnknownValue
         val rightRange = LongRangeSet.fromDfaValue(right) ?: return DfaUnknownValue
-        return valueFactory.createFactValue(DfaFactType.RANGE, leftRange.binOpFromToken(op, rightRange))
+        return valueFactory.createRange(leftRange.binOpFromToken(op, rightRange))
     }
 
     private fun visitAssignmentBinOp(expr: RsBinaryExpr, state: DfaMemoryState) {
@@ -359,14 +359,15 @@ private class NodeVisitorState(block: RsBlock) {
     private val cfg = buildFor(block)
     private val table = cfg.buildLocalIndex()
     private val queue = Queue<CFGNode>(2)
-    val unvisitedNodes: Sequence<CFGNode> get() = cfg.graph.depthFirstTraversal(cfg.entry).filter { it !in visited }
+    val unvisitedElements: Set<RsElement> get() = table.entries.filter { it.value.firstOrNull { node -> node in visited } == null }.map { it.key }.toSet()
 
     init {
         queue.addLast(cfg.entry)
     }
 
     fun nextNode(): CFGNode? {
-        val node = queue.pullFirst() ?: return null
+        if (queue.isEmpty) return null
+        val node = queue.pullFirst()
         visited += node
         return node
     }

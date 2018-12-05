@@ -76,11 +76,11 @@ sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
      * @param other other set to merge with
      * @return a new set
      */
-    open fun unite(other: LongRangeSet): LongRangeSet {
-        if (other.isUnknown) return other
-        if (other.isEmpty || other === this) return this
-        return if (other.contains(this)) other
-        else {
+    open fun unite(other: LongRangeSet): LongRangeSet = when {
+        other.isUnknown -> other
+        other.isEmpty || other === this -> this
+        this in other -> other
+        else -> {
             val range = allRange
             range.subtract(range.subtract(this).intersect(range.subtract(other)))
         }
@@ -190,8 +190,10 @@ sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
      */
     abstract val abs: LongRangeSet
 
+    val invert: LongRangeSet get() = allRange.subtract(this)
+
     /**
-     * Returns a range which represents all the possible values after applying unary unaryMinus
+     * Returns a range which represents all the possible values after applying unary minus
      * to the values from this set
      *
      * @return a new range
@@ -299,10 +301,10 @@ sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
          */
         fun fromConstant(value: Any, type: Ty): LongRangeSet? = if (value is Long && type is TyInteger) point(value, type, false) else null
 
-        fun fromDfaValue(value: DfaValue): LongRangeSet? {
-            if (value is DfaFactMapValue) return value[DfaFactType.RANGE]
-            if (value is DfaConstValue) return fromConstant(value.value, value.type)
-            return null
+        fun fromDfaValue(value: DfaValue): LongRangeSet? = when (value) {
+            is DfaFactMapValue -> value[DfaFactType.RANGE]
+            is DfaConstValue -> fromConstant(value.value, value.type)
+            else -> null
         }
 
         fun fromRanges(ranges: LongArray, bound: Int, type: TyInteger, overflow: Boolean): LongRangeSet = when (bound) {
@@ -438,12 +440,10 @@ class Point(val value: Long, type: TyInteger, overflow: Boolean) : LongRangeSet(
 
     override operator fun unaryMinus(): LongRangeSet = if (value == minPossible) empty(true) else point(-value)
 
-    override operator fun plus(other: LongRangeSet): LongRangeSet {
-        if (other.isEmpty) return other
-        if (other is Point) {
-            return point(checkOverflow(value + other.value))
-        }
-        return other + this
+    override operator fun plus(other: LongRangeSet): LongRangeSet = when {
+        other.isEmpty -> other
+        other is Point -> point(checkOverflow(value + other.value))
+        else -> other + this
     }
 
     override operator fun rem(divisor: LongRangeSet): LongRangeSet {
@@ -498,40 +498,30 @@ class Range(val from: Long, val to: Long, type: TyInteger, overflow: Boolean) : 
         if (other === this) return empty()
         if (other is Point) {
             val value = other.value
-            if (value < this.from || value > this.to) return this
-            if (value == this.from) return range(this.from + 1, this.to)
-            return if (value == this.to) range(this.from, this.to - 1) else set(
-                longArrayOf(
-                    this.from,
-                    value - 1,
-                    value + 1,
-                    this.to
-                )
-            )
+            return when {
+                value < this.from || value > this.to -> this
+                value == this.from -> range(this.from + 1, this.to)
+                value == this.to -> range(this.from, this.to - 1)
+                else -> set(longArrayOf(this.from, value - 1, value + 1, this.to))
+            }
         }
         if (other is Range) {
             val from = other.from
             val to = other.to
-            if (to < this.from || from > this.to) return this
-            if (from <= this.from && to >= this.to) return empty()
-            if (from > this.from && to < this.to) {
-                return set(longArrayOf(this.from, from - 1, to + 1, this.to))
+            return when {
+                to < this.from || from > this.to -> this
+                from <= this.from && to >= this.to -> empty()
+                from > this.from && to < this.to -> set(longArrayOf(this.from, from - 1, to + 1, this.to))
+                from <= this.from -> range(to + 1, this.to)
+                to >= this.to -> range(this.from, from - 1)
+                else -> throw InternalError("Impossible: $this:$other")
             }
-            if (from <= this.from) {
-                return range(to + 1, this.to)
-            }
-            if (to >= this.to) {
-                return range(this.from, from - 1)
-            }
-            throw InternalError("Impossible: $this:$other")
         }
         val ranges = (other as RangeSet).ranges
         var result: LongRangeSet = this
-        var i = 0
-        while (i < ranges.size) {
+        for (i in ranges.indices step 2) {
             result = result.subtract(range(ranges[i], ranges[i + 1]))
             if (result.isEmpty) return result
-            i += 2
         }
         return result
     }
@@ -558,12 +548,10 @@ class Range(val from: Long, val to: Long, type: TyInteger, overflow: Boolean) : 
         val ranges = (other as RangeSet).ranges
         val result = LongArray(ranges.size)
         var index = 0
-        var i = 0
-        while (i < ranges.size) {
+        for (i in ranges.indices step 2) {
             val res = intersect(range(ranges[i], ranges[i + 1])).asRanges
             System.arraycopy(res, 0, result, index, res.size)
             index += res.size
-            i += 2
         }
         return fromRanges(result, index)
     }
@@ -601,14 +589,10 @@ class Range(val from: Long, val to: Long, type: TyInteger, overflow: Boolean) : 
 
     override operator fun unaryMinus(): LongRangeSet {
         val minValue = minPossible
-        return if (this.from <= minValue) if (this.to >= maxPossible) type.toRange() else set(
-            longArrayOf(
-                minValue,
-                minValue,
-                -this.to,
-                -(minValue + 1)
-            )
-        ) else range(-this.to, -this.from)
+        return if (this.from <= minValue)
+            if (this.to >= maxPossible) type.toRange()
+            else set(longArrayOf(minValue, minValue, -this.to, -(minValue + 1)))
+        else range(-this.to, -this.from)
     }
 
     override operator fun plus(other: LongRangeSet): LongRangeSet {
@@ -619,10 +603,8 @@ class Range(val from: Long, val to: Long, type: TyInteger, overflow: Boolean) : 
         }
         val ranges = other.asRanges
         var result = empty()
-        var i = 0
-        while (i < ranges.size) {
+        for (i in ranges.indices step 2) {
             result = result.unite(plus(this.from, this.to, ranges[i], ranges[i + 1]))
-            i += 2
         }
         return result
     }
@@ -645,9 +627,7 @@ class Range(val from: Long, val to: Long, type: TyInteger, overflow: Boolean) : 
         if (divisor is Point && divisor.value == Long.MIN_VALUE) {
             return if (contains(Long.MIN_VALUE)) this.subtract(divisor).unite(point(0)) else this
         }
-        if (divisor.contains(Long.MIN_VALUE)) {
-            return possibleMod()
-        }
+        if (divisor.contains(Long.MIN_VALUE)) return possibleMod()
         val min = divisor.min
         val max = divisor.max
         val maxDivisor = Math.max(Math.abs(min), Math.abs(max))
@@ -663,9 +643,10 @@ class Range(val from: Long, val to: Long, type: TyInteger, overflow: Boolean) : 
         } else possibleMod().intersect(range(-maxDivisor + 1, maxDivisor - 1))
     }
 
-    private fun possibleMod(): LongRangeSet {
-        if (contains(0)) return this
-        return if (min > 0) range(0, max) else range(min, 0)
+    private fun possibleMod(): LongRangeSet = when {
+        contains(0) -> this
+        min > 0 -> range(0, max)
+        else -> range(min, 0)
     }
 
     override val stream: LongStream get() = LongStream.rangeClosed(from, to)
@@ -753,13 +734,11 @@ class RangeSet(val ranges: LongArray, type: TyInteger, overflow: Boolean) : Long
             // 0 ranges = Empty; 1 range = Range
             throw IllegalArgumentException("Bad length: ${ranges.size} $ranges")
         }
-        var i = 0
-        while (i < ranges.size) {
+        for (i in ranges.indices step 2) {
             if (ranges[i + 1] < ranges[i]) throw IllegalArgumentException("Bad sub-range #${i / 2} $ranges")
             if (i > 0 && (ranges[i - 1] == Long.MAX_VALUE || 1 + ranges[i - 1] > ranges[i])) throw IllegalArgumentException(
                 "Bad sub-ranges #${(i / 2 - 1)} and #${i / 2} $ranges"
             )
-            i += 2
         }
     }
 
@@ -768,34 +747,29 @@ class RangeSet(val ranges: LongArray, type: TyInteger, overflow: Boolean) : Long
         if (other === this) return empty()
         val result = LongArray(ranges.size + other.asRanges.size)
         var index = 0
-        var i = 0
-        while (i < ranges.size) {
+        for (i in ranges.indices step 2) {
             val res = range(ranges[i], ranges[i + 1]).subtract(other)
             val ranges = res.asRanges
             System.arraycopy(ranges, 0, result, index, ranges.size)
             index += ranges.size
-            i += 2
         }
         return fromRanges(result, index)
     }
 
-    override fun intersect(other: LongRangeSet): LongRangeSet {
-        if (other === this) return this
-        if (other.isEmpty) return other
-        return if (other is Point || other is Range) other.intersect(this) else subtract(allRange.subtract(other))
+    override fun intersect(other: LongRangeSet): LongRangeSet = when {
+        other === this -> this
+        other.isEmpty -> other
+        other is Point || other is Range -> other.intersect(this)
+        else -> subtract(allRange.subtract(other))
     }
 
-    override val min: Long
-        get() = ranges.first()
+    override val min: Long get() = ranges.first()
 
-    override val max: Long
-        get() = ranges.last()
+    override val max: Long get() = ranges.last()
 
     override fun intersects(other: LongRangeSet): Boolean {
         if (other.isEmpty) return false
-        if (other is Point) {
-            return contains(other.value)
-        }
+        if (other is Point) return contains(other.value)
         val otherRanges = other.asRanges
         var a = 0
         var b = 0
@@ -816,27 +790,19 @@ class RangeSet(val ranges: LongArray, type: TyInteger, overflow: Boolean) : Long
     }
 
     override operator fun contains(value: Long): Boolean {
-        var i = 0
-        while (i < ranges.size) {
-            if (value >= ranges[i] && value <= ranges[i + 1]) {
-                return true
-            }
-            i += 2
+        for (i in ranges.indices step 2) {
+            if (value >= ranges[i] && value <= ranges[i + 1]) return true
         }
         return false
     }
 
     override operator fun contains(other: LongRangeSet): Boolean {
         if (other.isEmpty || other === this) return true
-        if (other is Point) {
-            return contains(other.value)
-        }
+        if (other is Point) return contains(other.value)
         var result = other
-        var i = 0
-        while (i < ranges.size) {
+        for (i in ranges.indices step 2) {
             result = result.subtract(range(ranges[i], ranges[i + 1]))
             if (result.isEmpty) return true
-            i += 2
         }
         return false
     }
@@ -844,33 +810,25 @@ class RangeSet(val ranges: LongArray, type: TyInteger, overflow: Boolean) : Long
     override val abs: LongRangeSet
         get() {
             var result = allRange
-            var i = 0
-            while (i < ranges.size) {
+            for (i in ranges.indices step 2) {
                 result = result.subtract(range(ranges[i], ranges[i + 1]).abs)
-                i += 2
             }
             return allRange.subtract(result)
         }
 
     override operator fun unaryMinus(): LongRangeSet {
         var result = allRange
-        var i = 0
-        while (i < ranges.size) {
+        for (i in ranges.indices step 2) {
             result = result.subtract(-range(ranges[i], ranges[i + 1]))
-            i += 2
         }
         return allRange.subtract(result)
     }
 
     override operator fun plus(other: LongRangeSet): LongRangeSet {
-        if (ranges.size > 6) {
-            return range(min, max) + other
-        }
+        if (ranges.size > 6) return range(min, max) + other
         var result = empty()
-        var i = 0
-        while (i < ranges.size) {
+        for (i in ranges.indices step 2) {
             result = result.unite(range(ranges[i], ranges[i + 1]) + other)
-            i += 2
         }
         return result
     }
@@ -878,10 +836,8 @@ class RangeSet(val ranges: LongArray, type: TyInteger, overflow: Boolean) : Long
     override operator fun rem(divisor: LongRangeSet): LongRangeSet {
         if (divisor.isEmpty) return empty()
         var result = empty()
-        var i = 0
-        while (i < ranges.size) {
+        for (i in ranges.indices step 2) {
             result = result.unite(range(ranges[i], ranges[i + 1]) % divisor)
-            i += 2
         }
         return result
     }
@@ -904,11 +860,9 @@ class RangeSet(val ranges: LongArray, type: TyInteger, overflow: Boolean) : Long
 
     override fun toString(): String {
         val sb = StringBuilder("{")
-        var i = 0
-        while (i < ranges.size) {
+        for (i in ranges.indices step 2) {
             if (i > 0) sb.append(", ")
             sb.append(toString(ranges[i], ranges[i + 1]))
-            i += 2
         }
         sb.append("}")
         return sb.toString()
@@ -960,8 +914,7 @@ private fun LongRangeSet.checkOverflow(value: Long): Long {
 }
 
 private fun splitAtZero(ranges: LongArray): LongArray {
-    var i = 0
-    while (i < ranges.size) {
+    for (i in ranges.indices step 2) {
         if (ranges[i] < 0 && ranges[i + 1] >= 0) {
             val result = LongArray(ranges.size + 2)
             System.arraycopy(ranges, 0, result, 0, i + 1)
@@ -969,7 +922,6 @@ private fun splitAtZero(ranges: LongArray): LongArray {
             System.arraycopy(ranges, i + 1, result, i + 3, ranges.size - i - 1)
             return result
         }
-        i += 2
     }
     return ranges
 }

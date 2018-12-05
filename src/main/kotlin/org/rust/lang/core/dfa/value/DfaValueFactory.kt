@@ -27,9 +27,11 @@ class DfaValueFactory {
         return values.size - 1
     }
 
-    fun createTypeValue(type: Ty?): DfaValue = if (type is TyInteger) factFactory.createValue(DfaFactType.RANGE, LongRangeSet.fromType(type)) else DfaUnknownValue
+    fun createTypeValue(type: Ty?): DfaValue = if (type is TyInteger) createRange(LongRangeSet.fromType(type)) else DfaUnknownValue
 
     fun createLiteralValue(expr: RsLitExpr): DfaValue = constFactory.create(expr)
+
+    fun createRange(value: LongRangeSet?) = createFactValue(DfaFactType.RANGE, value)
 
     fun createBoolValue(value: Boolean): DfaValue = constFactory.createFromValue(value, TyBool)
 

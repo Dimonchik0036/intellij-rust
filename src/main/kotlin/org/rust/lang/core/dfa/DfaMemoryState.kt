@@ -11,23 +11,25 @@ import org.rust.lang.core.dfa.value.DfaValueFactory
 import org.rust.lang.core.psi.RsPatBinding
 
 typealias Variable = RsPatBinding
-typealias VariableState = DfaValue
 
-class DfaMemoryState(val factory: DfaValueFactory, val variableStates: HashMap<Variable, VariableState> = hashMapOf()) {
-    val copy: DfaMemoryState get() = DfaMemoryState(factory, variableStates.clone() as HashMap<Variable, VariableState>)
+class DfaMemoryState(val factory: DfaValueFactory, val variableStates: HashMap<Variable, DfaValue> = hashMapOf()) {
+    val copy: DfaMemoryState get() = DfaMemoryState(factory, variableStates.clone() as HashMap<Variable, DfaValue>)
 
-    fun setVarValue(variable: Variable?, value: VariableState = DfaUnknownValue) {
+    fun setVarValue(variable: Variable?, value: DfaValue = DfaUnknownValue) {
         if (variable != null) variableStates[variable] = value
     }
 
-    operator fun get(variable: Variable): VariableState = variableStates[variable] ?: DfaUnknownValue
+    val invert: DfaMemoryState get() = DfaMemoryState(factory, variableStates.asSequence().map { it.key to it.value.invert }.toMap(hashMapOf()))
+
+    operator fun get(variable: Variable): DfaValue = variableStates[variable] ?: DfaUnknownValue
 
     operator fun contains(variable: Variable): Boolean = variableStates.containsKey(variable)
 
     fun merge(other: DfaMemoryState): DfaMemoryState {
         other.variableStates.forEach { variable, state ->
             val oldValue = get(variable)
-            setVarValue(variable, oldValue.unite(state))
+            if (oldValue !is DfaUnknownValue) setVarValue(variable, oldValue.unite(state))
+            else setVarValue(variable, state)
         }
         return this
     }

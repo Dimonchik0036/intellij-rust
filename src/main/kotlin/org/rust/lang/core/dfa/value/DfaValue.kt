@@ -19,6 +19,8 @@ abstract class DfaValue(valueFactory: DfaValueFactory?) {
 
     open val minus: DfaValue = DfaUnknownValue
 
+    open val invert: DfaValue = DfaUnknownValue
+
     val isUnknown: Boolean get() = this is DfaUnknownValue
 
     override fun equals(other: Any?): Boolean = other is DfaValue && id == other.id

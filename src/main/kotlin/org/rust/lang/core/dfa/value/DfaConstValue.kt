@@ -23,6 +23,13 @@ class DfaConstValue(factory: DfaValueFactory, val value: Any, override val type:
             else -> DfaUnknownValue
         }
 
+    override val invert: DfaValue
+        get() = when (type) {
+            is TyBool -> negated
+            is TyInteger -> factory.createRange(LongRangeSet.fromDfaValue(this)?.invert)
+            else -> DfaUnknownValue
+        }
+
     override val minus: DfaValue
         get() = when {
             type is TyInteger && value is Long -> factory.constFactory.createFromValue(-value, type)
