@@ -182,7 +182,7 @@ sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
         else -> unknown()
     }
 
-    fun compare(op: BoolOp, right: LongRangeSet): Pair<LongRangeSet, LongRangeSet> = when(op) {
+    fun compare(op: BoolOp, right: LongRangeSet): Pair<LongRangeSet, LongRangeSet> = when (op) {
         EqualityOp.EQ -> {
             val res = intersect(right)
             res to res
