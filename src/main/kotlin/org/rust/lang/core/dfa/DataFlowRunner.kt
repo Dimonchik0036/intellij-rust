@@ -24,7 +24,6 @@ import java.util.*
 
 class DataFlowRunner(val function: RsFunction) {
     private val valueFactory: DfaValueFactory = DfaValueFactory()
-    private val createMemoryState: DfaMemoryState get() = DfaMemoryState(valueFactory)
     private val instructions = hashSetOf<BinOpInstruction>()
     private val states = TIntObjectHashMap<DfaMemoryState>()
     var unvisitedElements: Set<RsElement> = emptySet()
@@ -64,7 +63,7 @@ class DataFlowRunner(val function: RsFunction) {
     }
 
     private fun initFunctionParameters() {
-        val state = createMemoryState
+        val state = DfaMemoryState()
         function.valueParameterList?.valueParameterList?.forEach {
             val element = it.pat as? RsPatIdent
             val binPat = element?.patBinding
@@ -149,12 +148,11 @@ class DataFlowRunner(val function: RsFunction) {
         var isTrueReachable = true
         var isFalseReachable = true
 
-        val resultState = state.empty
-        val value = tryEvaluateExpr(expr, state, resultState)
-        val trueState = state.subtract(resultState.invert)
-        val falseState = state.subtract(resultState)
+        val value = tryEvaluateExpr(expr, state)
+        val trueState = value.trueState.intersect(state)
+        val falseState = value.falseState.intersect(state)
 
-        when (value) {
+        when (value.threeState) {
             ThreeState.YES -> {
                 visitorState.addNode(trueBranch)
                 mergeState(trueState, trueBranch)
@@ -182,61 +180,70 @@ class DataFlowRunner(val function: RsFunction) {
         lineVisit(visitorState, endIndex)
     }
 
-    private fun tryEvaluateExpr(expr: RsExpr?, state: DfaMemoryState, resultState: DfaMemoryState): ThreeState {
-        val expr = expr?.skipParenExprDown() ?: return ThreeState.UNSURE
+    private fun tryEvaluateExpr(expr: RsExpr?, state: DfaMemoryState): DfaCondition {
+        val expr = expr?.skipParenExprDown() ?: return DfaCondition.UNSURE
         return when (expr) {
             is RsLitExpr -> tryEvaluateLitExpr(expr)
-            is RsUnaryExpr -> tryEvaluateUnaryExpr(expr, state, resultState)
-            is RsBinaryExpr -> tryEvaluateBinExpr(expr, state, resultState)
-            else -> ThreeState.UNSURE
+            is RsUnaryExpr -> tryEvaluateUnaryExpr(expr, state)
+            is RsBinaryExpr -> tryEvaluateBinExpr(expr, state)
+            else -> DfaCondition.UNSURE
         }
     }
 
-    private fun tryEvaluateLitExpr(expr: RsLitExpr): ThreeState = fromBool((expr.kind as? RsLiteralKind.Boolean)?.value)
+    private fun tryEvaluateLitExpr(expr: RsLitExpr): DfaCondition = DfaCondition(fromBool((expr.kind as? RsLiteralKind.Boolean)?.value))
 
-    private fun tryEvaluateUnaryExpr(expr: RsUnaryExpr, state: DfaMemoryState, resultState: DfaMemoryState): ThreeState {
-        if (expr.excl == null) return ThreeState.UNSURE
-        return tryEvaluateExpr(expr.expr, state, resultState).not
+    private fun tryEvaluateUnaryExpr(expr: RsUnaryExpr, state: DfaMemoryState): DfaCondition {
+        if (expr.excl == null) return DfaCondition.UNSURE
+        val result = tryEvaluateExpr(expr.expr, state)
+        return DfaCondition(result.threeState.not, trueState = result.falseState, falseState = result.trueState)
     }
 
-    private fun tryEvaluateBinExpr(expr: RsBinaryExpr, state: DfaMemoryState, resultState: DfaMemoryState): ThreeState {
+    private fun tryEvaluateBinExpr(expr: RsBinaryExpr, state: DfaMemoryState): DfaCondition {
         val op = expr.operatorType
         val left = expr.left.skipParenExprDown()
-        val right = expr.right?.skipParenExprDown() ?: return ThreeState.UNSURE
+        val right = expr.right?.skipParenExprDown() ?: return DfaCondition.UNSURE
         return when (op) {
-            is LogicOp -> tryEvaluateBinExprWithLogicOp(op, left, right, state, resultState)
-            is BoolOp -> tryEvaluateBinExprWithRange(op, expr, state, resultState)
-            else -> ThreeState.UNSURE
+            is LogicOp -> tryEvaluateBinExprWithLogicOp(op, left, right, state)
+            is BoolOp -> tryEvaluateBinExprWithRange(op, expr, state)
+            else -> DfaCondition.UNSURE
         }
     }
 
-    private fun tryEvaluateBinExprWithLogicOp(op: LogicOp, left: RsExpr, right: RsExpr, state: DfaMemoryState, resultState: DfaMemoryState): ThreeState {
-        val leftResult = tryEvaluateExpr(left, state, resultState)
+    private fun tryEvaluateBinExprWithLogicOp(op: LogicOp, left: RsExpr, right: RsExpr, state: DfaMemoryState): DfaCondition {
+        val leftResult = tryEvaluateExpr(left, state)
         return when (op) {
-            LogicOp.OR -> if (leftResult == ThreeState.YES) leftResult else leftResult.or(tryEvaluateExpr(right, state, resultState))
-            LogicOp.AND -> if (leftResult == ThreeState.NO) leftResult else leftResult.and(tryEvaluateExpr(right, state, resultState))
+            LogicOp.OR -> if (leftResult.threeState == ThreeState.YES) leftResult else leftResult.or(tryEvaluateExpr(right, state))
+            LogicOp.AND -> if (leftResult.threeState == ThreeState.NO) leftResult else leftResult.and(tryEvaluateExpr(right, state))
         }
     }
 
-    private fun tryEvaluateBinExprWithRange(op: BoolOp, expr: RsBinaryExpr, state: DfaMemoryState, resultState: DfaMemoryState): ThreeState {
+    private fun tryEvaluateBinExprWithRange(op: BoolOp, expr: RsBinaryExpr, state: DfaMemoryState): DfaCondition {
         val leftValue = valueFromExpr(expr.left, state)
         val rightValue = valueFromExpr(expr.right, state)
         val value = valueFromConstValue(op, leftValue, rightValue)
         if (value != null) {
-            return fromBool((value as? DfaConstValue)?.value as? Boolean)
+            // TODO process bool variable
+            return DfaCondition(fromBool((value as? DfaConstValue)?.value as? Boolean))
         }
 
-        val leftRange = LongRangeSet.fromDfaValue(leftValue) ?: return ThreeState.UNSURE
-        val rightRange = LongRangeSet.fromDfaValue(rightValue) ?: return ThreeState.UNSURE
-        val (leftResult, rightResult) = leftRange.compare(op, rightRange)
-        uniteState(expr.left.toVariable(), valueFactory.createRange(leftResult), resultState)
-        uniteState(expr.right?.toVariable(), valueFactory.createRange(rightResult), resultState)
+        val leftRange = LongRangeSet.fromDfaValue(leftValue) ?: return DfaCondition.UNSURE
+        val rightRange = LongRangeSet.fromDfaValue(rightValue) ?: return DfaCondition.UNSURE
 
-        val resultRange = leftResult.unite(rightResult)
+        val trueState = DfaMemoryState()
+        val (leftTrueResult, rightTrueResult) = leftRange.compare(op, rightRange)
+        uniteState(expr.left.toVariable(), valueFactory.createRange(leftTrueResult), trueState)
+        uniteState(expr.right?.toVariable(), valueFactory.createRange(rightTrueResult), trueState)
+
+        val falseState = DfaMemoryState()
+        val (leftFalseResult, rightFalseResult) = leftRange.compare(op.not, rightRange)
+        uniteState(expr.left.toVariable(), valueFactory.createRange(leftFalseResult), falseState)
+        uniteState(expr.right?.toVariable(), valueFactory.createRange(rightFalseResult), falseState)
+
+        val resultRange = leftTrueResult.unite(rightTrueResult)
         return when {
-            resultRange.isEmpty -> ThreeState.NO
-            leftRange in resultRange && rightRange in resultRange -> ThreeState.YES
-            else -> ThreeState.UNSURE
+            resultRange.isEmpty -> DfaCondition(ThreeState.NO, trueState = trueState, falseState = falseState)
+            leftRange in resultRange && rightRange in resultRange -> DfaCondition(ThreeState.YES, trueState = trueState, falseState = falseState)
+            else -> DfaCondition(ThreeState.UNSURE, trueState = trueState, falseState = falseState)
         }
     }
 
