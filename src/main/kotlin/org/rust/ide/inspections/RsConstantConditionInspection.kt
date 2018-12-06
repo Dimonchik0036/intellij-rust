@@ -26,20 +26,20 @@ class RsConstantConditionInspection : RsLocalInspectionTool() {
                 val result = runner.analyze()
                 when (result) {
                     RunnerResult.OK -> createDescription(holder, runner)
-                    else -> holder.registerProblem(o, "Couldn't analyze function $result", ProblemHighlightType.WARNING)
+                    else -> holder.registerProblem(o, "Couldn't analyze function $result")
                 }
             }
 
             override fun visitIfExpr(o: RsIfExpr) {
                 val condition = o.condition?.skipParenExprDown() as? RsLitExpr ?: return
                 val boolLit = condition.boolLiteral ?: return
-                holder.registerProblem(condition, "Condition is always `${boolLit.text}`", ProblemHighlightType.WARNING)
+                holder.registerProblem(condition, "Condition is always `${boolLit.text}`")
             }
 
             override fun visitWhileExpr(o: RsWhileExpr) {
                 val condition = o.condition?.skipParenExprDown() as? RsLitExpr ?: return
                 if (condition.textMatches("false")) {
-                    holder.registerProblem(condition, "Condition is always false", ProblemHighlightType.WARNING)
+                    holder.registerProblem(condition, "Condition is always false")
                 }
             }
         }
@@ -70,5 +70,5 @@ private fun registerUnreachableCode(holder: ProblemsHolder, elements: Set<RsElem
 private operator fun RsElement.contains(other: RsElement): Boolean = other.textRange in this.textRange
 
 private fun registerConstantBoolean(holder: ProblemsHolder, expr: RsExpr, value: Boolean) {
-    holder.registerProblem(expr, "Condition '${expr.text}' is always '$value'", ProblemHighlightType.WARNING)
+    holder.registerProblem(expr, "Condition '${expr.text}' is always '$value'")
 }

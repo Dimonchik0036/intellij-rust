@@ -440,7 +440,7 @@
 
         <localInspection language="Rust" groupName="Rust"
                          displayName="Constant condition"
-                         enabledByDefault="true" level="WEAK WARNING"
+                         enabledByDefault="true" level="WARNING"
                          implementationClass="org.rust.ide.inspections.RsConstantConditionInspection"/>
 
         <localInspection language="Rust" groupName="Rust"
