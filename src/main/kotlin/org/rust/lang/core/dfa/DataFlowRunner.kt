@@ -40,9 +40,10 @@ class DataFlowRunner(val function: RsFunction) {
             val falseSet = hashSetOf<BinOpInstruction>()
             instructions.forEach {
                 if (!it.isConst) {
-                    if (it.isTrueReachable && !it.isFalseReachable) {
+                    val reachable = it.reachable
+                    if (reachable.isTrueReachable && !reachable.isFalseReachable) {
                         trueSet += it
-                    } else if (it.isFalseReachable && !it.isTrueReachable) {
+                    } else if (reachable.isFalseReachable && !reachable.isTrueReachable) {
                         falseSet += it
                     }
                 }
@@ -118,8 +119,8 @@ class DataFlowRunner(val function: RsFunction) {
     private fun visitAstNode(element: RsElement, node: CFGNode, visitorState: NodeVisitorState) = when (element) {
         is RsLetDecl -> visitLetDeclNode(node, element, visitorState)
         is RsBinaryExpr -> visitBinExpr(node, element, visitorState)
-        is RsPathExpr -> tryVisitBranch(element, node, visitorState)
-        is RsUnaryExpr -> tryVisitBranch(element, node, visitorState)
+        is RsPathExpr -> tryVisitControlFlow(element, node, visitorState)
+        is RsUnaryExpr -> tryVisitControlFlow(element, node, visitorState)
         is RsRetExpr -> {
         }
         else -> updateNextState(node, visitorState)
@@ -130,28 +131,36 @@ class DataFlowRunner(val function: RsFunction) {
         when (expr.operatorType) {
             is AssignmentOp -> visitAssignmentBinOp(expr, state)
             is BoolOp -> {
-                tryVisitBranch(expr, node, visitorState)
+                tryVisitControlFlow(expr, node, visitorState)
                 return
             }
         }
         updateNextState(node, visitorState)
     }
 
-    private fun tryVisitBranch(expr: RsExpr, node: CFGNode, visitorState: NodeVisitorState) {
-        val condition = expr.skipParenExprUp().parent as? RsCondition
-        val ifExpr = condition?.parent as? RsIfExpr
-        if (ifExpr == null) {
-            updateNextState(node, visitorState)
-            return
+    private fun tryVisitControlFlow(expr: RsExpr, node: CFGNode, visitorState: NodeVisitorState) {
+        val parent = expr.skipParenExprUp().parent
+        when (parent) {
+            is RsCondition -> visitCondition(expr, parent, node, visitorState)
+            is RsMatchExpr -> visitMatchExpr(expr, parent, node, visitorState)
+            else -> updateNextState(node, visitorState)
         }
+    }
+
+    private fun visitCondition(expr: RsExpr, condition: RsCondition, node: CFGNode, visitorState: NodeVisitorState) {
+        val parent = condition.parent
+        when (parent) {
+            is RsIfExpr -> visitIfExpr(expr, parent, node, visitorState)
+            else -> updateNextState(node, visitorState)
+        }
+    }
+
+    private fun visitIfExpr(expr: RsExpr, ifExpr: RsIfExpr, node: CFGNode, visitorState: NodeVisitorState) {
         val ifNode = visitorState.getNodeFromElement(ifExpr) ?: error("couldn't find node for '${ifExpr.text}'")
         val state = getStateWithCheck(node.index)
         val nodes = node.outgoingNodes
         val trueBranch = nodes.elementAt(1)
         val falseBranch = nodes.elementAt(0)
-
-        var isTrueReachable = true
-        var isFalseReachable = true
 
         val value = tryEvaluateExpr(expr, state)
         val trueState = state.intersect(value.trueState)
@@ -162,13 +171,11 @@ class DataFlowRunner(val function: RsFunction) {
                 visitorState.addNode(trueBranch)
                 mergeState(trueState, trueBranch)
                 mergeState(falseState, ifNode)
-                isFalseReachable = false
             }
             ThreeState.NO -> {
                 visitorState.addNode(falseBranch)
                 mergeState(falseState, falseBranch)
                 mergeState(trueState, ifNode)
-                isTrueReachable = false
             }
             ThreeState.UNSURE -> {
                 visitBranch(trueBranch, trueState, visitorState, ifNode.index + 1)
@@ -176,7 +183,17 @@ class DataFlowRunner(val function: RsFunction) {
                 updateNextState(ifNode, visitorState)
             }
         }
-        instructions += BinOpInstruction(isTrueReachable, isFalseReachable, expr)
+        val reachable = DfaReachableBranch.fromThreeState(value.threeState)
+        instructions += BinOpInstruction(reachable, expr)
+    }
+
+    private fun visitMatchExpr(expr: RsExpr, matchExpr: RsMatchExpr, node: CFGNode, visitorState: NodeVisitorState) {
+        val matchNode = visitorState.getNodeFromElement(matchExpr)
+            ?: error("couldn't find node for '${matchExpr.text}'")
+        val state = getStateWithCheck(node.index)
+        val nodes = node.outgoingNodes
+        nodes.forEach { visitBranch(it, state.copy, visitorState, matchNode.index) }
+        updateNextState(matchNode, visitorState)
     }
 
     private fun visitBranch(node: CFGNode, state: DfaMemoryState, visitorState: NodeVisitorState, endIndex: Int) {
@@ -388,29 +405,37 @@ class DataFlowRunner(val function: RsFunction) {
 
     private fun visitDummyNode(node: CFGNode, visitorState: NodeVisitorState) {
         val nextNode = visitorState.getNode(node.index + 1)
-        val element = nextNode.data.element
-        when (element) {
-            is RsLoopExpr -> visitLoop(node, nextNode, visitorState)
-            is RsWhileExpr -> visitWhile(node, nextNode, visitorState)
-            is RsForExpr -> visitFor(node, nextNode, visitorState)
+        val expr = nextNode.data.element
+        when (expr) {
+            is RsLoopExpr -> visitLoop(expr, node, nextNode, visitorState)
+            is RsWhileExpr -> visitWhile(expr, node, nextNode, visitorState)
+            is RsForExpr -> visitFor(expr, node, nextNode, visitorState)
             else -> updateNextState(node, visitorState)
         }
     }
 
-    private fun visitLoop(dummyNode: CFGNode, loopNode: CFGNode, visitorState: NodeVisitorState) {
+    private fun visitLoop(expr: RsLoopExpr, dummyNode: CFGNode, loopNode: CFGNode, visitorState: NodeVisitorState) {
         updateNextState(dummyNode, visitorState)
         lineVisit(visitorState, dummyNode.index)
     }
 
-    private fun visitWhile(dummyNode: CFGNode, whileNode: CFGNode, visitorState: NodeVisitorState) {
+    private fun visitWhile(whileExpr: RsWhileExpr, dummyNode: CFGNode, whileNode: CFGNode, visitorState: NodeVisitorState) {
         updateNextState(dummyNode, visitorState)
         lineVisit(visitorState, whileNode.index)
+
+        val expr = whileExpr.condition?.expr
+        if (expr != null) {
+            val state = getStateWithCheck(whileNode.index)
+            val value = tryEvaluateExpr(expr, state)
+            val reachable = DfaReachableBranch.fromThreeState(value.threeState)
+            instructions += BinOpInstruction(reachable, expr)
+        }
         // TODO: check expr and visit block
         updateNextState(whileNode, visitorState)
     }
 
     //TODO: check expr return
-    private fun visitFor(dummyNode: CFGNode, forNode: CFGNode, visitorState: NodeVisitorState) {
+    private fun visitFor(expr: RsForExpr, dummyNode: CFGNode, forNode: CFGNode, visitorState: NodeVisitorState) {
         updateNextState(dummyNode, visitorState)
         lineVisit(visitorState, forNode.index)
         // TODO: check expr and visit block

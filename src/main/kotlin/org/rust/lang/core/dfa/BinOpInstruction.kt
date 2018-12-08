@@ -8,6 +8,6 @@ package org.rust.lang.core.dfa
 import org.rust.lang.core.psi.RsExpr
 import org.rust.lang.core.psi.RsLitExpr
 
-data class BinOpInstruction(val isTrueReachable: Boolean, val isFalseReachable: Boolean, val anchor: RsExpr) {
+data class BinOpInstruction(val reachable: DfaReachableBranch, val anchor: RsExpr) {
     val isConst = (anchor as? RsLitExpr)?.boolLiteral != null
 }
