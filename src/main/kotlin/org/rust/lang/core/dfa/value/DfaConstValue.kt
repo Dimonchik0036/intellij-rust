@@ -36,6 +36,8 @@ class DfaConstValue(factory: DfaValueFactory, val value: Any, override val type:
             else -> DfaUnknownValue
         }
 
+    override val isEmpty: Boolean get() = this == factory.constFactory.dfaNothing
+
     override fun toString(): String = value.toString()
 }
 
@@ -43,6 +45,7 @@ class DfaConstFactory(val factory: DfaValueFactory) {
     private val values = hashMapOf<Any, DfaConstValue>()
     val dfaTrue = DfaConstValue(factory, true, TyBool)
     val dfaFalse = DfaConstValue(factory, false, TyBool)
+    val dfaNothing = DfaConstValue(factory, 0, TyBool)
 
     fun create(expr: RsLitExpr): DfaValue {
         val kind = expr.kind

@@ -15,7 +15,6 @@ typealias Variable = RsPatBinding
 
 class DfaMemoryState(val variableStates: HashMap<Variable, DfaValue> = hashMapOf()) {
     val copy: DfaMemoryState get() = DfaMemoryState(variableStates.clone() as HashMap<Variable, DfaValue>)
-    val empty: DfaMemoryState get() = DfaMemoryState()
 
     fun setVarValue(variable: Variable?, value: DfaValue = DfaUnknownValue) {
         if (variable != null) variableStates[variable] = value
@@ -27,10 +26,7 @@ class DfaMemoryState(val variableStates: HashMap<Variable, DfaValue> = hashMapOf
 
     operator fun contains(variable: Variable): Boolean = variableStates.containsKey(variable)
 
-    val hasEmpty: Boolean
-        get() = variableStates.any {
-            (it.value as? DfaFactMapValue)?.get(DfaFactType.RANGE)?.isEmpty ?: false
-        }
+    val hasEmpty: Boolean get() = variableStates.any { it.value.isEmpty }
 
     fun unite(other: DfaMemoryState): DfaMemoryState {
         other.variableStates.forEach { variable, value -> unite(variable, value) }
@@ -39,8 +35,8 @@ class DfaMemoryState(val variableStates: HashMap<Variable, DfaValue> = hashMapOf
 
     fun unite(variable: Variable, value: DfaValue) {
         val oldValue = get(variable)
-        if (oldValue !is DfaUnknownValue) setVarValue(variable, oldValue.unite(value))
-        else setVarValue(variable, value)
+        val newValue = if (oldValue !is DfaUnknownValue) oldValue.unite(value) else value
+        setVarValue(variable, newValue)
     }
 
     fun intersect(other: DfaMemoryState): DfaMemoryState {
@@ -53,7 +49,7 @@ class DfaMemoryState(val variableStates: HashMap<Variable, DfaValue> = hashMapOf
         val oldValue = get(variable)
         val newValue = when {
             value is DfaConstValue && oldValue is DfaUnknownValue -> value
-            value is DfaConstValue && oldValue is DfaConstValue -> if (value != oldValue) DfaUnknownValue else oldValue
+            value is DfaConstValue && oldValue is DfaConstValue -> if (value != oldValue) oldValue.factory.constFactory.dfaNothing else oldValue
             oldValue is DfaFactMapValue -> {
                 val range = LongRangeSet.fromDfaValue(value)
                 if (range != null) oldValue.withFact(DfaFactType.RANGE, oldValue[DfaFactType.RANGE]?.intersect(range))
@@ -74,7 +70,7 @@ class DfaMemoryState(val variableStates: HashMap<Variable, DfaValue> = hashMapOf
         val oldValue = get(variable)
         val newValue = when {
             value is DfaConstValue && oldValue is DfaUnknownValue -> value.invert
-            value is DfaConstValue && oldValue is DfaConstValue -> if (value == oldValue) DfaUnknownValue else oldValue
+            value is DfaConstValue && oldValue is DfaConstValue -> if (value == oldValue) oldValue.factory.constFactory.dfaNothing else oldValue
             oldValue is DfaFactMapValue -> {
                 val range = LongRangeSet.fromDfaValue(value)
                 if (range != null) oldValue.withFact(DfaFactType.RANGE, oldValue[DfaFactType.RANGE]?.subtract(range))

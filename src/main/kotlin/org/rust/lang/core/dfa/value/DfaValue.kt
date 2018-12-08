@@ -23,6 +23,8 @@ abstract class DfaValue(valueFactory: DfaValueFactory?) {
 
     open val isUnknown: Boolean get() = this is DfaUnknownValue
 
+    open val isEmpty: Boolean get() = false
+
     override fun equals(other: Any?): Boolean = other is DfaValue && id == other.id
 
     override fun hashCode(): Int = id

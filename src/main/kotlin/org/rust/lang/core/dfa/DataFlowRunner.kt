@@ -50,6 +50,8 @@ class DataFlowRunner(val function: RsFunction) {
             return DfaResult(trueSet, falseSet)
         }
 
+    private fun createMemoryState(): DfaMemoryState = DfaMemoryState()
+
     fun analyze(): RunnerResult {
         try {
             val visitor = NodeVisitorState(function.block ?: return RunnerResult.NOT_APPLICABLE)
@@ -62,7 +64,7 @@ class DataFlowRunner(val function: RsFunction) {
     }
 
     private fun initFunctionParameters() {
-        val state = DfaMemoryState()
+        val state = createMemoryState()
         function.valueParameterList?.valueParameterList?.forEach {
             val element = it.pat as? RsPatIdent
             val binPat = element?.patBinding
@@ -236,11 +238,11 @@ class DataFlowRunner(val function: RsFunction) {
             val leftVariable = leftExpr.toVariable()
             val rightVariable = rightExpr.toVariable()
             val value = valueFactory.createBoolValue(boolValue).let { if (op is EqualityOp.EQ) it else it.negated }
-            val trueState = DfaMemoryState()
+            val trueState = createMemoryState()
             uniteState(leftVariable, value, trueState)
             uniteState(rightVariable, value, trueState)
 
-            val falseState = DfaMemoryState()
+            val falseState = createMemoryState()
             uniteState(leftVariable, value.negated, falseState)
             uniteState(rightVariable, value.negated, falseState)
             DfaCondition(ThreeState.UNSURE, trueState, falseState)
@@ -259,12 +261,12 @@ class DataFlowRunner(val function: RsFunction) {
         val leftRange = LongRangeSet.fromDfaValue(leftValue) ?: return DfaCondition.UNSURE
         val rightRange = LongRangeSet.fromDfaValue(rightValue) ?: return DfaCondition.UNSURE
 
-        val trueState = DfaMemoryState()
+        val trueState = createMemoryState()
         val (leftTrueResult, rightTrueResult) = leftRange.compare(op, rightRange)
         uniteState(expr.left.toVariable(), valueFactory.createRange(leftTrueResult), trueState)
         uniteState(expr.right?.toVariable(), valueFactory.createRange(rightTrueResult), trueState)
 
-        val falseState = DfaMemoryState()
+        val falseState = createMemoryState()
         val (leftFalseResult, rightFalseResult) = leftRange.compare(op.not, rightRange)
         uniteState(expr.left.toVariable(), valueFactory.createRange(leftFalseResult), falseState)
         uniteState(expr.right?.toVariable(), valueFactory.createRange(rightFalseResult), falseState)
@@ -402,9 +404,7 @@ class DataFlowRunner(val function: RsFunction) {
 
     private fun visitWhile(dummyNode: CFGNode, whileNode: CFGNode, visitorState: NodeVisitorState) {
         updateNextState(dummyNode, visitorState)
-        val inNode = whileNode.firstInNode ?: error("couldn't")
-        lineVisit(visitorState, inNode.index)
-        mergeStates(inNode, whileNode)
+        lineVisit(visitorState, whileNode.index)
         // TODO: check expr and visit block
         updateNextState(whileNode, visitorState)
     }
@@ -412,9 +412,7 @@ class DataFlowRunner(val function: RsFunction) {
     //TODO: check expr return
     private fun visitFor(dummyNode: CFGNode, forNode: CFGNode, visitorState: NodeVisitorState) {
         updateNextState(dummyNode, visitorState)
-        val inNode = forNode.firstInNode ?: error("couldn't")
-        lineVisit(visitorState, inNode.index)
-        mergeStates(inNode, forNode)
+        lineVisit(visitorState, forNode.index)
         // TODO: check expr and visit block
         updateNextState(forNode, visitorState)
     }
