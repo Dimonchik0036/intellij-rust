@@ -19,9 +19,9 @@ class RsConstantConditionInspection : RsLocalInspectionTool() {
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean) =
         object : RsVisitor() {
             override fun visitFunction(o: RsFunction) {
-                val block = o.block ?: return
-                val cfg = buildFor(block)
-                println(cfg.createDotDescription())
+//                val block = o.block ?: return
+//                val cfg = buildFor(block)
+//                println(cfg.createDotDescription())
                 val runner = DataFlowRunner(o)
                 val result = runner.analyze()
                 when (result) {

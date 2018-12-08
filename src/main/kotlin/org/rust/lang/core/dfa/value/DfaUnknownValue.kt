@@ -6,7 +6,7 @@
 package org.rust.lang.core.dfa.value
 
 object DfaUnknownValue : DfaValue(null) {
-    override fun toString(): String = "<unknown>"
+    override fun toString(): String = "{?}"
 
     override fun equals(other: Any?): Boolean = other === this
 

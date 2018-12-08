@@ -336,7 +336,7 @@ class DataFlowRunner(val function: RsFunction) {
             is RsLitExpr -> valueFactory.createLiteralValue(expr)
             is RsBinaryExpr -> valueFromBinExpr(expr, state)
             is RsUnaryExpr -> valueFromUnaryExpr(expr, state)
-            else -> DfaUnknownValue
+            else -> valueFactory.createTypeValue(expr.type)
         }
     }
 

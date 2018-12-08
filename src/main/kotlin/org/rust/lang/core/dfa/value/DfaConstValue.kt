@@ -38,7 +38,7 @@ class DfaConstValue(factory: DfaValueFactory, val value: Any, override val type:
 
     override val isEmpty: Boolean get() = this == factory.constFactory.dfaNothing
 
-    override fun toString(): String = value.toString()
+    override fun toString(): String = if (isEmpty) "{}" else "{$value}"
 }
 
 class DfaConstFactory(val factory: DfaValueFactory) {
