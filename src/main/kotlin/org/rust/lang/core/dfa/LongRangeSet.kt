@@ -289,6 +289,8 @@ sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
 
     abstract val asRanges: LongArray
 
+    protected open val fixRange: LongRangeSet get() = type.toRange().intersect(this)
+
     protected fun fromRanges(ranges: LongArray, bound: Int): LongRangeSet = fromRanges(ranges, bound, type, overflow)
 
     protected fun point(value: Long): LongRangeSet = point(value, type, overflow)
@@ -313,11 +315,11 @@ sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
          * @param `type` type of constant
          * @return new LongRangeSet or null if constant type is unsupported
          */
-        fun fromConstant(value: Any, type: Ty): LongRangeSet? = if (value is Long && type is TyInteger) point(value, type, false) else null
+        fun fromConstant(value: Long?, type: Ty): LongRangeSet? = if (value is Long && type is TyInteger) point(value, type, false) else null
 
         fun fromDfaValue(value: DfaValue): LongRangeSet? = when (value) {
             is DfaFactMapValue -> value[DfaFactType.RANGE]
-            is DfaConstValue -> fromConstant(value.value, value.type)
+            is DfaConstValue -> fromConstant(value.value as? Long, value.type)
             else -> null
         }
 
@@ -336,24 +338,24 @@ sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
          * @param to upper bound (must be greater or equal to `from`)
          * @return a new LongRangeSet
          */
-        fun range(from: Long, to: Long, type: TyInteger, overflow: Boolean): LongRangeSet =
+        fun range(from: Long, to: Long, type: TyInteger = TyInteger.I64, overflow: Boolean = false): LongRangeSet =
             if (from == to) Point(from, type, overflow) else Range(from, to, type, overflow)
 
-        fun point(value: Long, type: TyInteger, overflow: Boolean): LongRangeSet = Point(value, type, overflow)
+        fun point(value: Long, type: TyInteger = TyInteger.I64, overflow: Boolean = false): LongRangeSet = Point(value, type, overflow)
 
-        fun set(ranges: LongArray, type: TyInteger, overflow: Boolean): LongRangeSet = RangeSet(ranges, type, overflow)
+        fun set(ranges: LongArray, type: TyInteger = TyInteger.I64, overflow: Boolean = false): LongRangeSet = RangeSet(ranges, type, overflow)
 
-        fun empty(overflow: Boolean): LongRangeSet =
+        fun empty(overflow: Boolean = false): LongRangeSet =
             if (overflow) Empty.EmptyWithOverflow else Empty.EmptyWithoutOverflow
 
-        fun unknown(overflow: Boolean): LongRangeSet =
+        fun unknown(overflow: Boolean = false): LongRangeSet =
             if (overflow) Unknown.UnknownWithOverflow else Unknown.UnknownWithoutOverflow
 
-        fun all(type: TyInteger): LongRangeSet = type.toRange()
+        fun all(type: TyInteger = TyInteger.I64): LongRangeSet = type.toRange()
     }
 }
 
-sealed class Empty(overflow: Boolean) : LongRangeSet(TyInteger.DEFAULT, overflow) {
+sealed class Empty(overflow: Boolean) : LongRangeSet(TyInteger.I64, overflow) {
     override fun subtract(other: LongRangeSet): LongRangeSet = this
 
     override fun intersect(other: LongRangeSet): LongRangeSet = this
@@ -392,7 +394,7 @@ sealed class Empty(overflow: Boolean) : LongRangeSet(TyInteger.DEFAULT, overflow
     object EmptyWithoutOverflow : Empty(false)
 }
 
-sealed class Unknown(overflow: Boolean) : LongRangeSet(TyInteger.DEFAULT, overflow) {
+sealed class Unknown(overflow: Boolean) : LongRangeSet(TyInteger.I64, overflow) {
     override fun subtract(other: LongRangeSet): LongRangeSet = this
 
     override fun intersect(other: LongRangeSet): LongRangeSet = this
@@ -598,14 +600,14 @@ class Range(val from: Long, val to: Long, type: TyInteger, overflow: Boolean) : 
                 hi = Math.max(-low, hi)
                 low = 0
             }
-            return if (this.from <= minValue) set(longArrayOf(minValue, minValue, low, hi)) else range(low, hi)
+            return range(low, hi)
         }
 
     override operator fun unaryMinus(): LongRangeSet {
         val minValue = minPossible
         return if (this.from <= minValue)
             if (this.to >= maxPossible) type.toRange()
-            else set(longArrayOf(minValue, minValue, -this.to, -(minValue + 1)))
+            else range(-this.to, -(minValue + 1))
         else range(-this.to, -this.from)
     }
 
@@ -823,19 +825,19 @@ class RangeSet(val ranges: LongArray, type: TyInteger, overflow: Boolean) : Long
 
     override val abs: LongRangeSet
         get() {
-            var result = allRange
+            var result = empty()
             for (i in ranges.indices step 2) {
-                result = result.subtract(range(ranges[i], ranges[i + 1]).abs)
+                result = result.unite(range(ranges[i], ranges[i + 1]).abs)
             }
-            return allRange.subtract(result)
+            return result
         }
 
     override operator fun unaryMinus(): LongRangeSet {
-        var result = allRange
+        var result = empty()
         for (i in ranges.indices step 2) {
-            result = result.subtract(-range(ranges[i], ranges[i + 1]))
+            result = result.unite(-range(ranges[i], ranges[i + 1]))
         }
-        return allRange.subtract(result)
+        return result
     }
 
     override operator fun plus(other: LongRangeSet): LongRangeSet {
@@ -898,20 +900,21 @@ private fun TyInteger.toRange(): Range = when (this) {
     TyInteger.USize -> Range.USize
 }
 
-private fun TyInteger.size(): Long = when (this) {
-    TyInteger.I8 -> 8
-    TyInteger.U8 -> 8
-    TyInteger.I16 -> 16
-    TyInteger.U16 -> 16
-    TyInteger.I32 -> 32
-    TyInteger.U32 -> 32
-    TyInteger.I64 -> 64
-    TyInteger.U64 -> 64
-    TyInteger.I128 -> 128
-    TyInteger.U128 -> 128
-    TyInteger.ISize -> 64
-    TyInteger.USize -> 64
-}
+private val TyInteger.size: Long
+    get() = when (this) {
+        TyInteger.I8 -> 8
+        TyInteger.U8 -> 8
+        TyInteger.I16 -> 16
+        TyInteger.U16 -> 16
+        TyInteger.I32 -> 32
+        TyInteger.U32 -> 32
+        TyInteger.I64 -> 64
+        TyInteger.U64 -> 64
+        TyInteger.I128 -> 128
+        TyInteger.U128 -> 128
+        TyInteger.ISize -> 64
+        TyInteger.USize -> 64
+    }
 
 private fun LongRangeSet.checkOverflow(value: Long): Long {
     var value = value
