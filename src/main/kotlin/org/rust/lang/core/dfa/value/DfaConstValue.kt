@@ -18,8 +18,8 @@ import org.rust.lang.core.types.type
 class DfaConstValue(factory: DfaValueFactory, val value: Any, override val type: Ty) : DfaValue(factory) {
     override val negated: DfaValue
         get() = when (this) {
-            factory.constFactory.dfaTrue -> factory.constFactory.dfaFalse
-            factory.constFactory.dfaFalse -> factory.constFactory.dfaTrue
+            dfaTrue -> dfaFalse
+            dfaFalse -> dfaTrue
             else -> DfaUnknownValue
         }
 
@@ -36,9 +36,20 @@ class DfaConstValue(factory: DfaValueFactory, val value: Any, override val type:
             else -> DfaUnknownValue
         }
 
-    override val isEmpty: Boolean get() = this == factory.constFactory.dfaNothing
+    override val isEmpty: Boolean get() = this == dfaNothing
+
+    override fun unite(other: DfaValue): DfaValue = when {
+        other !is DfaConstValue -> DfaUnknownValue
+        this == other -> this
+        this == dfaTrue || other == dfaTrue -> dfaTrue
+        else -> dfaFalse
+    }
 
     override fun toString(): String = if (isEmpty) "{}" else "{$value}"
+
+    private val dfaTrue: DfaValue get() = factory.constFactory.dfaTrue
+    private val dfaFalse: DfaValue get() = factory.constFactory.dfaFalse
+    private val dfaNothing: DfaValue get() = factory.constFactory.dfaNothing
 }
 
 class DfaConstFactory(val factory: DfaValueFactory) {

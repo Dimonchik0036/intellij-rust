@@ -7,7 +7,7 @@ package org.rust.lang.core.dfa
 
 import com.intellij.util.ThreeState
 
-data class DfaCondition(val threeState: ThreeState, val trueState: DfaMemoryState = DfaMemoryState(), val falseState: DfaMemoryState = DfaMemoryState()) {
+data class DfaCondition(val threeState: ThreeState, val trueState: DfaMemoryState = DfaMemoryState.EMPTY, val falseState: DfaMemoryState = DfaMemoryState.EMPTY) {
     fun or(other: DfaCondition): DfaCondition {
         val threeState = this.threeState.or(other.threeState)
         val trueState = this.trueState.unite(other.trueState)

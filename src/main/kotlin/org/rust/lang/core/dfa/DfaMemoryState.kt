@@ -5,6 +5,7 @@
 
 package org.rust.lang.core.dfa
 
+import com.intellij.util.SmartFMap
 import org.rust.lang.core.dfa.value.DfaConstValue
 import org.rust.lang.core.dfa.value.DfaFactMapValue
 import org.rust.lang.core.dfa.value.DfaUnknownValue
@@ -13,43 +14,36 @@ import org.rust.lang.core.psi.RsPatBinding
 
 typealias Variable = RsPatBinding
 
-class DfaMemoryState(val variableStates: HashMap<Variable, DfaValue> = hashMapOf()) {
-    val copy: DfaMemoryState get() = DfaMemoryState(variableStates.clone() as HashMap<Variable, DfaValue>)
+class DfaMemoryState private constructor(val variableStates: SmartFMap<Variable, DfaValue>) {
+    fun plus(variable: Variable?, value: DfaValue = DfaUnknownValue): DfaMemoryState = if (variable != null) DfaMemoryState(variableStates.plus(variable, value)) else this
+    fun plusAll(other: Map<Variable, DfaValue>): DfaMemoryState = DfaMemoryState(variableStates.plusAll(other))
+    fun minus(variable: Variable?): DfaMemoryState = if (variable != null) DfaMemoryState(variableStates.minus(variable)) else this
+    fun minusAll(other: Collection<Variable>): DfaMemoryState = DfaMemoryState(variableStates.minusAll(other))
 
-    fun setVarValue(variable: Variable?, value: DfaValue = DfaUnknownValue) {
-        if (variable != null) variableStates[variable] = value
-    }
-
-    val invert: DfaMemoryState get() = DfaMemoryState((variableStates.clone() as HashMap<Variable, DfaValue>).asSequence().map { it.key to it.value.invert }.toMap(hashMapOf()))
+    val invert: DfaMemoryState get() = EMPTY.plusAll(variableStates.asSequence().map { it.key to it.value.invert }.toMap())
 
     operator fun get(variable: Variable): DfaValue = variableStates[variable] ?: DfaUnknownValue
 
-    operator fun contains(variable: Variable): Boolean = variableStates.containsKey(variable)
+    operator fun contains(variable: Variable): Boolean = variable in variableStates
 
     val hasEmpty: Boolean get() = variableStates.any { it.value.isEmpty }
 
-    fun unite(other: DfaMemoryState): DfaMemoryState {
-        other.variableStates.forEach { variable, value -> unite(variable, value) }
-        return this
-    }
+    fun unite(other: DfaMemoryState): DfaMemoryState = plusAll(other.variableStates.map { it.key to unite(it.key, it.value) }.toMap())
+    fun uniteValue(variable: Variable?, value: DfaValue): DfaMemoryState = if (variable != null) plus(variable, unite(variable, value)) else this
 
-    fun unite(variable: Variable, value: DfaValue) {
+    private fun unite(variable: Variable, value: DfaValue): DfaValue {
         val oldValue = get(variable)
-        val newValue = if (oldValue !is DfaUnknownValue) oldValue.unite(value) else value
-        setVarValue(variable, newValue)
+        return if (oldValue !is DfaUnknownValue) oldValue.unite(value) else value
     }
 
-    fun intersect(other: DfaMemoryState): DfaMemoryState {
-        val copy = copy
-        other.variableStates.forEach { variable, value -> copy.intersect(variable, value) }
-        return copy
-    }
+    fun intersect(other: DfaMemoryState, withOverrideConstant: Boolean = true): DfaMemoryState = plusAll(other.variableStates.map { it.key to intersect(it.key, it.value, withOverrideConstant) }.toMap())
+    fun intersectValue(variable: Variable?, value: DfaValue, withOverrideConstant: Boolean = true): DfaMemoryState = if (variable != null) plus(variable, intersect(variable, value)) else this
 
-    fun intersect(variable: Variable, value: DfaValue) {
+    private fun intersect(variable: Variable, value: DfaValue, withOverrideConstant: Boolean = true): DfaValue {
         val oldValue = get(variable)
-        val newValue = when {
+        return when {
             value is DfaConstValue && oldValue is DfaUnknownValue -> value
-            value is DfaConstValue && oldValue is DfaConstValue -> if (value != oldValue) oldValue.factory.constFactory.dfaNothing else oldValue
+            value is DfaConstValue && oldValue is DfaConstValue -> if (withOverrideConstant && value != oldValue) oldValue.factory.constFactory.dfaNothing else oldValue
             oldValue is DfaFactMapValue -> {
                 val range = LongRangeSet.fromDfaValue(value)
                 if (range != null) oldValue.withFact(DfaFactType.RANGE, oldValue[DfaFactType.RANGE]?.intersect(range))
@@ -57,28 +51,6 @@ class DfaMemoryState(val variableStates: HashMap<Variable, DfaValue> = hashMapOf
             }
             else -> value
         }
-        setVarValue(variable, newValue)
-    }
-
-    fun subtract(other: DfaMemoryState): DfaMemoryState {
-        val copy = copy
-        other.variableStates.forEach { variable, value -> copy.subtract(variable, value) }
-        return copy
-    }
-
-    fun subtract(variable: Variable, value: DfaValue) {
-        val oldValue = get(variable)
-        val newValue = when {
-            value is DfaConstValue && oldValue is DfaUnknownValue -> value.invert
-            value is DfaConstValue && oldValue is DfaConstValue -> if (value == oldValue) oldValue.factory.constFactory.dfaNothing else oldValue
-            oldValue is DfaFactMapValue -> {
-                val range = LongRangeSet.fromDfaValue(value)
-                if (range != null) oldValue.withFact(DfaFactType.RANGE, oldValue[DfaFactType.RANGE]?.subtract(range))
-                else DfaUnknownValue
-            }
-            else -> DfaUnknownValue
-        }
-        setVarValue(variable, newValue)
     }
 
     override fun hashCode(): Int = variableStates.hashCode()
@@ -90,4 +62,8 @@ class DfaMemoryState(val variableStates: HashMap<Variable, DfaValue> = hashMapOf
     }
 
     override fun toString(): String = variableStates.entries.joinToString(prefix = "<vars: ", postfix = ">") { "[${it.key.text}->${it.value}]" }
+
+    companion object {
+        val EMPTY = DfaMemoryState(SmartFMap.emptyMap())
+    }
 }

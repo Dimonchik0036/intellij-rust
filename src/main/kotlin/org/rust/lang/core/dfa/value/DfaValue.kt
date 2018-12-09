@@ -29,7 +29,7 @@ abstract class DfaValue(valueFactory: DfaValueFactory?) {
 
     override fun hashCode(): Int = id
 
-    fun unite(other: DfaValue): DfaValue {
+    open fun unite(other: DfaValue): DfaValue {
         if (this == other) return this
         if (this.isUnknown || other.isUnknown) return DfaUnknownValue
         return factory.factFactory.createValue(DfaFactMap.fromDfaValue(this).unite(DfaFactMap.fromDfaValue(other)))

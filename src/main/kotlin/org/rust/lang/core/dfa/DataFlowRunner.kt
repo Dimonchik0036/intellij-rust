@@ -25,8 +25,8 @@ class DataFlowRunner(val function: RsFunction) {
     private val valueFactory: DfaValueFactory = DfaValueFactory()
     private val instructions = hashSetOf<BinOpInstruction>()
     private val states = TIntObjectHashMap<DfaMemoryState>()
-    var unvisitedElements: Set<RsElement> = emptySet()
-        private set
+    //    var unvisitedElements: Set<RsElement> = emptySet()
+//        private set
     //for debug
     var resultState: DfaMemoryState? = null
 
@@ -51,13 +51,13 @@ class DataFlowRunner(val function: RsFunction) {
             return DfaResult(trueSet, falseSet)
         }
 
-    private fun createMemoryState(): DfaMemoryState = DfaMemoryState()
+    private fun createMemoryState(): DfaMemoryState = DfaMemoryState.EMPTY
 
     fun analyze(): RunnerResult {
         try {
             val visitor = NodeVisitorState(function.block ?: return RunnerResult.NOT_APPLICABLE)
             lineVisit(visitor)
-            unvisitedElements = visitor.unvisitedElements.filter { it !is RsBlock }.toSet()
+//            unvisitedElements = visitor.unvisitedElements.filter { it !is RsBlock }.toSet()
             return RunnerResult.OK
         } catch (e: Exception) {
             return RunnerResult.NOT_APPLICABLE
@@ -65,15 +65,15 @@ class DataFlowRunner(val function: RsFunction) {
     }
 
     private fun initFunctionParameters() {
-        val state = createMemoryState()
+        var state = createMemoryState()
         function.valueParameterList?.valueParameterList?.forEach {
             val element = it.pat as? RsPatIdent
             val binPat = element?.patBinding
             if (binPat != null) {
-                state.setVarValue(binPat, valueFactory.createTypeValue(binPat.type))
+                state = state.plus(binPat, valueFactory.createTypeValue(binPat.type))
             }
         }
-        states.put(0, state)
+        setState(0, state)
     }
 
     /***
@@ -93,13 +93,16 @@ class DataFlowRunner(val function: RsFunction) {
         }
     }
 
-    private fun updateNextState(node: CFGNode, visitorState: NodeVisitorState, nextNode: CFGNode? = node.outgoingNodes.lastOrNull()) {
+    private fun updateNextState(node: CFGNode, visitorState: NodeVisitorState, nextNode: CFGNode? = node.nextNode) {
         if (nextNode == null) return
         visitorState.addNode(nextNode)
         mergeStates(node, nextNode)
     }
 
     private fun getStateWithCheck(index: Int): DfaMemoryState = states[index] ?: error("Index $index")
+    private fun setState(index: Int, state: DfaMemoryState) {
+        states.put(index, state)
+    }
 
     private fun mergeStates(nodeFrom: CFGNode, nodeTo: CFGNode) {
         val currentState = states[nodeFrom.index] ?: return
@@ -109,9 +112,9 @@ class DataFlowRunner(val function: RsFunction) {
     private fun mergeState(state: DfaMemoryState, nodeTo: CFGNode) {
         val nextState = states[nodeTo.index]
         if (nextState != null) {
-            states.put(nodeTo.index, state.unite(nextState))
+            setState(nodeTo.index, state.unite(nextState))
         } else {
-            states.put(nodeTo.index, state)
+            setState(nodeTo.index, state)
         }
         resultState = states[nodeTo.index]
     }
@@ -129,13 +132,10 @@ class DataFlowRunner(val function: RsFunction) {
     private fun visitBinExpr(node: CFGNode, expr: RsBinaryExpr, visitorState: NodeVisitorState) {
         val state = getStateWithCheck(node.index)
         when (expr.operatorType) {
-            is AssignmentOp -> visitAssignmentBinOp(expr, state)
-            is BoolOp -> {
-                tryVisitControlFlow(expr, node, visitorState)
-                return
-            }
+            is AssignmentOp -> visitAssignmentBinOp(expr, state, node, visitorState)
+            is BoolOp -> tryVisitControlFlow(expr, node, visitorState)
+            else -> updateNextState(node, visitorState)
         }
-        updateNextState(node, visitorState)
     }
 
     private fun tryVisitControlFlow(expr: RsExpr, node: CFGNode, visitorState: NodeVisitorState) {
@@ -156,15 +156,15 @@ class DataFlowRunner(val function: RsFunction) {
     }
 
     private fun visitIfExpr(expr: RsExpr, ifExpr: RsIfExpr, node: CFGNode, visitorState: NodeVisitorState) {
-        val ifNode = visitorState.getNodeFromElement(ifExpr) ?: error("couldn't find node for '${ifExpr.text}'")
+        val ifNode = visitorState.getNodeFromElement(ifExpr)
         val state = getStateWithCheck(node.index)
         val nodes = node.outgoingNodes
         val trueBranch = nodes.elementAt(1)
         val falseBranch = nodes.elementAt(0)
 
         val value = tryEvaluateExpr(expr, state)
-        val trueState = state.intersect(value.trueState)
-        val falseState = state.intersect(value.falseState)
+        val trueState = state.intersect(value.trueState, false)
+        val falseState = state.intersect(value.falseState, false)
 
         when (value.threeState) {
             ThreeState.YES -> {
@@ -189,15 +189,14 @@ class DataFlowRunner(val function: RsFunction) {
 
     private fun visitMatchExpr(expr: RsExpr, matchExpr: RsMatchExpr, node: CFGNode, visitorState: NodeVisitorState) {
         val matchNode = visitorState.getNodeFromElement(matchExpr)
-            ?: error("couldn't find node for '${matchExpr.text}'")
         val state = getStateWithCheck(node.index)
         val nodes = node.outgoingNodes
-        nodes.forEach { visitBranch(it, state.copy, visitorState, matchNode.index) }
+        nodes.forEach { visitBranch(it, state, visitorState, matchNode.index) }
         updateNextState(matchNode, visitorState)
     }
 
     private fun visitBranch(node: CFGNode, state: DfaMemoryState, visitorState: NodeVisitorState, endIndex: Int) {
-        states.put(node.index, state)
+        setState(node.index, state)
         visitorState.addNode(node)
         lineVisit(visitorState, endIndex)
     }
@@ -246,22 +245,21 @@ class DataFlowRunner(val function: RsFunction) {
     }
 
     private fun tryEvaluateConst(op: BoolOp, leftExpr: RsExpr?, leftValue: DfaValue, rightExpr: RsExpr?, rightValue: DfaValue): DfaCondition? = when {
-        leftExpr == null || rightExpr == null
-            || leftValue is DfaConstValue && rightValue is DfaConstValue
-            || leftValue is DfaUnknownValue && rightValue is DfaUnknownValue
-            || op !is EqualityOp -> DfaCondition.UNSURE
-        leftValue is DfaConstValue && rightValue is DfaUnknownValue || leftValue is DfaUnknownValue && rightValue is DfaConstValue -> {
+        leftExpr == null || rightExpr == null || leftValue is DfaUnknownValue && rightValue is DfaUnknownValue -> DfaCondition.UNSURE
+        op is EqualityOp && (leftValue is DfaConstValue && rightValue is DfaConstValue
+            || leftValue is DfaConstValue && rightValue is DfaUnknownValue
+            || leftValue is DfaUnknownValue && rightValue is DfaConstValue) -> {
             val boolValue = ((leftValue as? DfaConstValue)?.value ?: (rightValue as? DfaConstValue)?.value) as? Boolean
             val leftVariable = leftExpr.toVariable()
             val rightVariable = rightExpr.toVariable()
             val value = valueFactory.createBoolValue(boolValue).let { if (op is EqualityOp.EQ) it else it.negated }
             val trueState = createMemoryState()
-            uniteState(leftVariable, value, trueState)
-            uniteState(rightVariable, value, trueState)
+                .uniteValue(leftVariable, value)
+                .uniteValue(rightVariable, value)
 
             val falseState = createMemoryState()
-            uniteState(leftVariable, value.negated, falseState)
-            uniteState(rightVariable, value.negated, falseState)
+                .uniteValue(leftVariable, value.negated)
+                .uniteValue(rightVariable, value.negated)
             DfaCondition(ThreeState.UNSURE, trueState, falseState)
         }
         else -> null
@@ -278,15 +276,15 @@ class DataFlowRunner(val function: RsFunction) {
         val leftRange = LongRangeSet.fromDfaValue(leftValue) ?: return DfaCondition.UNSURE
         val rightRange = LongRangeSet.fromDfaValue(rightValue) ?: return DfaCondition.UNSURE
 
-        val trueState = createMemoryState()
         val (leftTrueResult, rightTrueResult) = leftRange.compare(op, rightRange)
-        uniteState(expr.left.toVariable(), valueFactory.createRange(leftTrueResult), trueState)
-        uniteState(expr.right?.toVariable(), valueFactory.createRange(rightTrueResult), trueState)
+        val trueState = createMemoryState()
+            .uniteValue(expr.left.toVariable(), valueFactory.createRange(leftTrueResult))
+            .uniteValue(expr.right?.toVariable(), valueFactory.createRange(rightTrueResult))
 
-        val falseState = createMemoryState()
         val (leftFalseResult, rightFalseResult) = leftRange.compare(op.not, rightRange)
-        uniteState(expr.left.toVariable(), valueFactory.createRange(leftFalseResult), falseState)
-        uniteState(expr.right?.toVariable(), valueFactory.createRange(rightFalseResult), falseState)
+        val falseState = createMemoryState()
+            .uniteValue(expr.left.toVariable(), valueFactory.createRange(leftFalseResult))
+            .uniteValue(expr.right?.toVariable(), valueFactory.createRange(rightFalseResult))
 
         val resultRange = leftTrueResult.unite(rightTrueResult)
         return when {
@@ -294,11 +292,6 @@ class DataFlowRunner(val function: RsFunction) {
             leftRange in resultRange && rightRange in resultRange -> DfaCondition(ThreeState.YES, trueState = trueState, falseState = falseState)
             else -> DfaCondition(ThreeState.UNSURE, trueState = trueState, falseState = falseState)
         }
-    }
-
-    private fun uniteState(variable: Variable?, value: DfaValue, state: DfaMemoryState) {
-        if (variable == null) return
-        state.unite(variable, value)
     }
 
     private fun visitLetDeclNode(node: CFGNode, element: RsLetDecl, visitorState: NodeVisitorState) {
@@ -309,14 +302,15 @@ class DataFlowRunner(val function: RsFunction) {
                 val bin = pat.patBinding
                 val expr = element.expr
                 val value = if (expr != null) valueFromExpr(expr, state) else valueFactory.createTypeValue(bin.type)
-                state.setVarValue(bin, value)
+                setState(node.index, state.plus(bin, value))
             }
             is RsPatTup -> {
-                val state = getStateWithCheck(node.index)
+                var state = getStateWithCheck(node.index)
                 val values = valuesFromTuple(element.expr, state)
                 pat.patList.forEachIndexed { index, it ->
-                    state.setVarValue((it as? RsPatIdent)?.patBinding, values.getOrElse(index) { DfaUnknownValue })
+                    state = state.plus((it as? RsPatIdent)?.patBinding, values.getOrElse(index) { DfaUnknownValue })
                 }
+                setState(node.index, state)
             }
         }
         updateNextState(node, visitorState)
@@ -391,10 +385,12 @@ class DataFlowRunner(val function: RsFunction) {
         return valueFactory.createRange(leftRange.binOpFromToken(op, rightRange))
     }
 
-    private fun visitAssignmentBinOp(expr: RsBinaryExpr, state: DfaMemoryState) {
+    private fun visitAssignmentBinOp(expr: RsBinaryExpr, state: DfaMemoryState, node: CFGNode, visitorState: NodeVisitorState) {
         val variable = variable(expr.left, state)
         val value = valueFromExpr(expr.right, state)
-        state.setVarValue(variable, value)
+        val nextNode = node.nextNode ?: return
+        visitorState.addNode(nextNode)
+        mergeState(state.plus(variable, value), nextNode)
     }
 
     private fun variable(expr: RsExpr, state: DfaMemoryState): Variable {
@@ -444,11 +440,11 @@ class DataFlowRunner(val function: RsFunction) {
 }
 
 private class NodeVisitorState(block: RsBlock) {
-    private val visited = hashSetOf<CFGNode>()
+    //    private val visited = hashSetOf<CFGNode>()
     private val cfg = buildFor(block)
     private val table = cfg.buildLocalIndex()
     private val queue = Queue<CFGNode>(2)
-    val unvisitedElements: Set<RsElement> get() = table.entries.filter { it.value.firstOrNull { node -> node in visited } == null }.map { it.key }.toSet()
+//    val unvisitedElements: Set<RsElement> get() = table.entries.filter { it.value.firstOrNull { node -> node in visited } == null }.map { it.key }.toSet()
 
     init {
         queue.addLast(cfg.entry)
@@ -457,17 +453,19 @@ private class NodeVisitorState(block: RsBlock) {
     fun nextNode(): CFGNode? {
         if (queue.isEmpty) return null
         val node = queue.pullFirst()
-        visited += node
+//        visited += node
         return node
     }
 
     fun addNode(node: CFGNode): Unit = queue.addLast(node)
 
     fun getNode(index: Int): CFGNode = cfg.graph.getNode(index)
-    fun getNodeFromElement(element: RsElement): CFGNode? = table[element]?.first()
+    fun getNodeFromElement(element: RsElement): CFGNode = table[element]?.firstOrNull()
+        ?: error("couldn't find node for '${element.text}'")
 }
 
 val CFGNode.outgoingNodes: Sequence<CFGNode> get() = generateSequence(this.firstOutEdge) { it.nextSourceEdge }.map { it.target }
+val CFGNode.nextNode: CFGNode? get() = this.outgoingNodes.lastOrNull()
 val CFGNode.hasSingleOut: Boolean get() = this.outgoingNodes.singleOrNull() != null
 val CFGNode.firstOutNode: CFGNode? get() = this.firstOutEdge?.target
 val CFGNode.firstInNode: CFGNode? get() = this.firstInEdge?.source

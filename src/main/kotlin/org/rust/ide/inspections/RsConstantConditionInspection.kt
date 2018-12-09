@@ -50,7 +50,7 @@ private fun createDescription(holder: ProblemsHolder, runner: DataFlowRunner) {
     trueSet.forEach { registerConstantBoolean(holder, it.anchor, true) }
     falseSet.forEach { registerConstantBoolean(holder, it.anchor, false) }
 
-    registerUnreachableCode(holder, runner.unvisitedElements)
+//    registerUnreachableCode(holder, runner.unvisitedElements)
     //dor debug
     addStates(holder, runner.resultState)
 }
@@ -62,10 +62,10 @@ private fun addStates(holder: ProblemsHolder, state: DfaMemoryState?) {
     }
 }
 
-private fun registerUnreachableCode(holder: ProblemsHolder, elements: Set<RsElement>) =
-    elements
-        .filter { element -> elements.indexOfFirst { element != it && element in it } == -1 }
-        .forEach { holder.registerProblem(it, "Unreachable code", ProblemHighlightType.WEAK_WARNING) }
+//private fun registerUnreachableCode(holder: ProblemsHolder, elements: Set<RsElement>) =
+//    elements
+//        .filter { element -> elements.indexOfFirst { element != it && element in it } == -1 }
+//        .forEach { holder.registerProblem(it, "Unreachable code", ProblemHighlightType.WEAK_WARNING) }
 
 private operator fun RsElement.contains(other: RsElement): Boolean = other.textRange in this.textRange
 
