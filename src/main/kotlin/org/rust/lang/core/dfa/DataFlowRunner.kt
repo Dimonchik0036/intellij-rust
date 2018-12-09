@@ -163,8 +163,8 @@ class DataFlowRunner(val function: RsFunction) {
         val falseBranch = nodes.elementAt(0)
 
         val value = tryEvaluateExpr(expr, state)
-        val trueState = state.intersect(value.trueState, false)
-        val falseState = state.intersect(value.falseState, false)
+        val trueState = state.intersect(value.trueState)
+        val falseState = state.intersect(value.falseState)
 
         when (value.threeState) {
             ThreeState.YES -> {
@@ -245,24 +245,35 @@ class DataFlowRunner(val function: RsFunction) {
     }
 
     private fun tryEvaluateConst(op: BoolOp, leftExpr: RsExpr?, leftValue: DfaValue, rightExpr: RsExpr?, rightValue: DfaValue): DfaCondition? = when {
-        leftExpr == null || rightExpr == null || leftValue is DfaUnknownValue && rightValue is DfaUnknownValue -> DfaCondition.UNSURE
-        op is EqualityOp && (leftValue is DfaConstValue && rightValue is DfaConstValue
-            || leftValue is DfaConstValue && rightValue is DfaUnknownValue
-            || leftValue is DfaUnknownValue && rightValue is DfaConstValue) -> {
-            val boolValue = ((leftValue as? DfaConstValue)?.value ?: (rightValue as? DfaConstValue)?.value) as? Boolean
+        leftExpr == null || rightExpr == null -> DfaCondition.UNSURE
+        op !is EqualityOp -> null
+        leftValue is DfaUnknownValue && rightValue is DfaUnknownValue -> {
             val leftVariable = leftExpr.toVariable()
             val rightVariable = rightExpr.toVariable()
-            val value = valueFactory.createBoolValue(boolValue).let { if (op is EqualityOp.EQ) it else it.negated }
-            val trueState = createMemoryState()
-                .uniteValue(leftVariable, value)
-                .uniteValue(rightVariable, value)
-
-            val falseState = createMemoryState()
-                .uniteValue(leftVariable, value.negated)
-                .uniteValue(rightVariable, value.negated)
-            DfaCondition(ThreeState.UNSURE, trueState, falseState)
+            if (leftVariable != rightVariable) DfaCondition.UNSURE
+            else DfaCondition(ThreeState.fromBoolean(op is EqualityOp.EQ))
         }
+        leftValue is DfaConstValue && rightValue is DfaConstValue -> DfaCondition(ThreeState.fromBoolean(if (op is EqualityOp.EQ) leftValue == rightValue else leftValue != rightValue))
+        leftValue is DfaConstValue && rightValue is DfaUnknownValue -> valueFromConstantAndUnknown(leftValue, op, leftExpr, rightExpr)
+        leftValue is DfaUnknownValue && rightValue is DfaConstValue -> valueFromConstantAndUnknown(rightValue, op, rightExpr, leftExpr)
         else -> null
+    }
+
+    private fun valueFromConstantAndUnknown(constValue: DfaConstValue, op: EqualityOp, constExpr: RsExpr, otherExpr: RsExpr): DfaCondition? {
+        val boolValue = constValue.value as? Boolean ?: return null
+        val constVariable = constExpr.toVariable()
+        val otherVariable = otherExpr.toVariable()
+
+        val constValue = valueFactory.createBoolValue(boolValue)
+        val resultValue = constValue.let { if (op is EqualityOp.EQ) it else it.negated }
+        val trueState = createMemoryState()
+            .uniteValue(constVariable, constValue)
+            .uniteValue(otherVariable, resultValue)
+
+        val falseState = createMemoryState()
+            .uniteValue(constVariable, constValue)
+            .uniteValue(otherVariable, resultValue.negated)
+        return DfaCondition(ThreeState.UNSURE, trueState, falseState)
     }
 
     private fun tryEvaluateBinExprWithRange(op: BoolOp, expr: RsBinaryExpr, state: DfaMemoryState): DfaCondition {

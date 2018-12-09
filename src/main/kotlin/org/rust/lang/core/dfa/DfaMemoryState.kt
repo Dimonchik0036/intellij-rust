@@ -36,14 +36,14 @@ class DfaMemoryState private constructor(val variableStates: SmartFMap<Variable,
         return if (oldValue !is DfaUnknownValue) oldValue.unite(value) else value
     }
 
-    fun intersect(other: DfaMemoryState, withOverrideConstant: Boolean = true): DfaMemoryState = plusAll(other.variableStates.map { it.key to intersect(it.key, it.value, withOverrideConstant) }.toMap())
-    fun intersectValue(variable: Variable?, value: DfaValue, withOverrideConstant: Boolean = true): DfaMemoryState = if (variable != null) plus(variable, intersect(variable, value)) else this
+    fun intersect(other: DfaMemoryState): DfaMemoryState = plusAll(other.variableStates.map { it.key to intersect(it.key, it.value) }.toMap())
+    fun intersectValue(variable: Variable?, value: DfaValue): DfaMemoryState = if (variable != null) plus(variable, intersect(variable, value)) else this
 
-    private fun intersect(variable: Variable, value: DfaValue, withOverrideConstant: Boolean = true): DfaValue {
+    private fun intersect(variable: Variable, value: DfaValue): DfaValue {
         val oldValue = get(variable)
         return when {
             value is DfaConstValue && oldValue is DfaUnknownValue -> value
-            value is DfaConstValue && oldValue is DfaConstValue -> if (withOverrideConstant && value != oldValue) oldValue.factory.constFactory.dfaNothing else oldValue
+            value is DfaConstValue && oldValue is DfaConstValue -> if (value != oldValue) oldValue.factory.constFactory.dfaNothing else oldValue
             oldValue is DfaFactMapValue -> {
                 val range = LongRangeSet.fromDfaValue(value)
                 if (range != null) oldValue.withFact(DfaFactType.RANGE, oldValue[DfaFactType.RANGE]?.intersect(range))
