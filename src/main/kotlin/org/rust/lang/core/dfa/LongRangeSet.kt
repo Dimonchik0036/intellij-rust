@@ -5,7 +5,11 @@
 
 package org.rust.lang.core.dfa
 
+import com.google.common.math.LongMath.checkedAdd
 import com.google.common.math.LongMath.checkedMultiply
+import org.rust.lang.core.dfa.LongRangeSet.Companion.empty
+import org.rust.lang.core.dfa.LongRangeSet.Companion.point
+import org.rust.lang.core.dfa.LongRangeSet.Companion.unknown
 import org.rust.lang.core.dfa.value.DfaConstValue
 import org.rust.lang.core.dfa.value.DfaFactMapValue
 import org.rust.lang.core.dfa.value.DfaValue
@@ -15,12 +19,13 @@ import org.rust.lang.core.types.ty.TyInteger
 import java.util.*
 import java.util.stream.LongStream
 import kotlin.NoSuchElementException
+import kotlin.math.absoluteValue
 import kotlin.math.max
 import kotlin.math.min
 
-sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
-    val minPossible = type.minPossible()
-    val maxPossible = type.maxPossible()
+sealed class LongRangeSet(val type: TyInteger) {
+    val minPossible = type.MIN_POSSIBLE
+    val maxPossible = type.MAX_POSSIBLE
 
     /**
      * Subtracts given set from the current
@@ -38,6 +43,11 @@ sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
     val isEmpty: Boolean get() = this is Empty
 
     /**
+     * @return true if set is overflow
+     */
+    val isOverflow: Boolean get() = this === Empty.EmptyWithOverflow
+
+    /**
      * @return true if set is empty
      */
     val isUnknown: Boolean get() = this is Unknown
@@ -47,20 +57,9 @@ sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
      */
     val isLarge: Boolean get() = isLargeOnTop || isLargeBelow
 
-    val isLargeOnTop: Boolean
-        get() = when (type) {
-            TyInteger.U64 -> true
-            TyInteger.I128 -> true
-            TyInteger.U128 -> true
-            TyInteger.USize -> true
-            else -> false
-        }
+    val isLargeOnTop: Boolean get() = type.isLargeOnTop
 
-    val isLargeBelow: Boolean
-        get() = when (type) {
-            TyInteger.I128 -> true
-            else -> false
-        }
+    val isLargeBelow: Boolean get() = type.isLargeBelow
 
     /**
      * Intersects current set with other
@@ -142,7 +141,7 @@ sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
             EqualityOp.EQ -> return this
             EqualityOp.EXCLEQ -> return allRange.subtract(this)
         }
-        return if (isUnknown || isEmpty) unknown()
+        return if (isUnknown || isEmpty) this
         else when (relation) {
             ComparisonOp.GT -> {
                 val min = min
@@ -236,11 +235,11 @@ sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
 
     operator fun times(other: LongRangeSet): LongRangeSet {
         if (isUnknown || other.isUnknown) return unknown()
-        if (other.isEmpty) return empty()
+        if (other.isEmpty) return other
         val left = splitAtZero(asRanges)
         val right = splitAtZero(longArrayOf(other.min, other.max))
-        var result = empty()
 
+        var result = empty()
         for (leftIndex in left.indices step 2) {
             for (rightIndex in right.indices step 2) {
                 val part = times(left[leftIndex], left[leftIndex + 1], right[rightIndex], right[rightIndex + 1])
@@ -261,14 +260,17 @@ sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
         val leftValue = min(minOf(leftLeft, leftRight, rightLeft), rightRight)
         val rightValue = max(maxOf(leftLeft, leftRight, rightLeft), rightRight)
 
-        val resultLeftValue = checkOverflow(leftValue)
-        val resultRightValue = checkOverflow(rightValue)
-        range(resultLeftValue, resultRightValue, (resultLeftValue != leftValue) or (resultRightValue != rightValue))
+        if (leftLeft > maxPossible || rightValue < minPossible) empty(true)
+        else range(overflowCorrection(leftValue), overflowCorrection(rightValue))
     } catch (e: ArithmeticException) {
-        Unknown.UnknownWithOverflow
+        Unknown
     }
 
-    protected fun checkOverflow(value: Long): Long = if (value < minPossible) minPossible else if (value > maxPossible) maxPossible else value
+    protected fun overflowCorrection(value: Long): Long = when {
+        value < minPossible -> minPossible
+        value > maxPossible -> maxPossible
+        else -> value
+    }
 
     /**
      * Returns a range which represents all the possible values after applying `x % y` operation for
@@ -291,31 +293,31 @@ sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
 
     protected open val fixRange: LongRangeSet get() = type.toRange().intersect(this)
 
-    protected fun fromRanges(ranges: LongArray, bound: Int): LongRangeSet = fromRanges(ranges, bound, type, overflow)
+    protected fun fromRanges(ranges: LongArray, bound: Int): LongRangeSet = fromRanges(ranges, bound, type)
 
-    protected fun point(value: Long): LongRangeSet = point(value, type, overflow)
-    protected fun point(value: Long, overflow: Boolean): LongRangeSet = point(value, type, overflow)
+    protected fun point(value: Long): LongRangeSet = point(value, type)
 
-    protected fun set(ranges: LongArray): LongRangeSet = set(ranges, type, overflow)
-    protected fun set(ranges: LongArray, overflow: Boolean): LongRangeSet = set(ranges, type, overflow)
+    protected fun set(ranges: LongArray): LongRangeSet = set(ranges, type)
 
-    protected fun range(from: Long, to: Long): LongRangeSet = range(from, to, type, overflow)
-    protected fun range(from: Long, to: Long, overflow: Boolean): LongRangeSet = range(from, to, type, overflow)
+    protected fun range(from: Long, to: Long): LongRangeSet = range(from, to, type)
 
     protected val allRange get() = all(type)
-    protected fun empty(): LongRangeSet = empty(overflow)
-    protected fun unknown(): LongRangeSet = unknown(overflow)
 
     //    protected fun typeEquals(other: LongRangeSet) = type == other.type
     companion object {
         /**
-         * Creates a set containing single value which is equivalent to supplied boxed constant (if its type is supported)
+         * Creates a set containing single value
          *
-         * @param `value` constant to create a set from
+         * @param `value` constant to create a set from or null if type is large
          * @param `type` type of constant
          * @return new LongRangeSet or null if constant type is unsupported
          */
-        fun fromConstant(value: Long?, type: Ty): LongRangeSet? = if (value is Long && type is TyInteger) point(value, type, false) else null
+        fun fromConstant(value: Long?, type: Ty): LongRangeSet? = if (type is TyInteger) when (value) {
+            is Long -> pointOrOverflowOrUnknown(value, type)
+            null -> unknown()
+            else -> null
+        }
+        else null
 
         fun fromDfaValue(value: DfaValue): LongRangeSet? = when (value) {
             is DfaFactMapValue -> value[DfaFactType.RANGE]
@@ -323,10 +325,10 @@ sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
             else -> null
         }
 
-        fun fromRanges(ranges: LongArray, bound: Int, type: TyInteger, overflow: Boolean): LongRangeSet = when (bound) {
-            0 -> empty(overflow)
-            2 -> range(ranges[0], ranges[1], type, overflow)
-            else -> set(ranges.copyOfRange(0, bound), type, overflow)
+        fun fromRanges(ranges: LongArray, bound: Int, type: TyInteger): LongRangeSet = when (bound) {
+            0 -> empty()
+            2 -> range(ranges[0], ranges[1], type)
+            else -> set(ranges.copyOfRange(0, bound), type)
         }
 
         fun fromType(type: Ty?): LongRangeSet? = (type as? TyInteger)?.toRange()
@@ -338,24 +340,21 @@ sealed class LongRangeSet(val type: TyInteger, val overflow: Boolean) {
          * @param to upper bound (must be greater or equal to `from`)
          * @return a new LongRangeSet
          */
-        fun range(from: Long, to: Long, type: TyInteger = TyInteger.I64, overflow: Boolean = false): LongRangeSet =
-            if (from == to) Point(from, type, overflow) else Range(from, to, type, overflow)
+        fun range(from: Long, to: Long, type: TyInteger = TyInteger.I64): LongRangeSet = if (from == to) Point(from, type) else Range(from, to, type)
 
-        fun point(value: Long, type: TyInteger = TyInteger.I64, overflow: Boolean = false): LongRangeSet = Point(value, type, overflow)
+        fun point(value: Long, type: TyInteger = TyInteger.I64): LongRangeSet = Point(value, type)
 
-        fun set(ranges: LongArray, type: TyInteger = TyInteger.I64, overflow: Boolean = false): LongRangeSet = RangeSet(ranges, type, overflow)
+        fun set(ranges: LongArray, type: TyInteger = TyInteger.I64): LongRangeSet = RangeSet(ranges, type)
 
-        fun empty(overflow: Boolean = false): LongRangeSet =
-            if (overflow) Empty.EmptyWithOverflow else Empty.EmptyWithoutOverflow
+        fun empty(overflow: Boolean = false): LongRangeSet = if (overflow) Empty.EmptyWithOverflow else Empty.EmptyWithoutOverflow
 
-        fun unknown(overflow: Boolean = false): LongRangeSet =
-            if (overflow) Unknown.UnknownWithOverflow else Unknown.UnknownWithoutOverflow
+        fun unknown(): LongRangeSet = Unknown
 
         fun all(type: TyInteger = TyInteger.I64): LongRangeSet = type.toRange()
     }
 }
 
-sealed class Empty(overflow: Boolean) : LongRangeSet(TyInteger.I64, overflow) {
+sealed class Empty(val overflow: Boolean) : LongRangeSet(TyInteger.I64) {
     override fun subtract(other: LongRangeSet): LongRangeSet = this
 
     override fun intersect(other: LongRangeSet): LongRangeSet = this
@@ -390,11 +389,14 @@ sealed class Empty(overflow: Boolean) : LongRangeSet(TyInteger.I64, overflow) {
 
     override fun toString(): String = "{}"
 
-    object EmptyWithOverflow : Empty(true)
+    object EmptyWithOverflow : Empty(true) {
+        override fun toString(): String = "{!}"
+    }
+
     object EmptyWithoutOverflow : Empty(false)
 }
 
-sealed class Unknown(overflow: Boolean) : LongRangeSet(TyInteger.I64, overflow) {
+object Unknown : LongRangeSet(TyInteger.I64) {
     override fun subtract(other: LongRangeSet): LongRangeSet = this
 
     override fun intersect(other: LongRangeSet): LongRangeSet = this
@@ -428,12 +430,9 @@ sealed class Unknown(overflow: Boolean) : LongRangeSet(TyInteger.I64, overflow) 
     override fun equals(other: Any?): Boolean = other === this
 
     override fun toString(): String = "{?}"
-
-    object UnknownWithOverflow : Unknown(true)
-    object UnknownWithoutOverflow : Unknown(false)
 }
 
-class Point(val value: Long, type: TyInteger, overflow: Boolean) : LongRangeSet(type, overflow) {
+class Point(val value: Long, type: TyInteger) : LongRangeSet(type) {
     override fun subtract(other: LongRangeSet): LongRangeSet = when {
         other.isUnknown -> other
         this in other -> empty()
@@ -458,37 +457,38 @@ class Point(val value: Long, type: TyInteger, overflow: Boolean) : LongRangeSet(
 
     override operator fun plus(other: LongRangeSet): LongRangeSet = when {
         other.isEmpty -> other
-        other is Point -> point(checkOverflow(value + other.value))
+        other is Point -> try {
+            val result = checkedAdd(value, other.value)
+            if (result == overflowCorrection(result)) point(result)
+            else empty(true)
+        } catch (e: ArithmeticException) {
+            unknown()
+        }
         else -> other + this
     }
 
     override operator fun rem(divisor: LongRangeSet): LongRangeSet {
         if (divisor.isUnknown) return unknown()
-        if (divisor.isEmpty || divisor is Point && divisor.value == 0L) return empty()
+        if (divisor.isEmpty || divisor is Point && divisor.value == 0L) return empty(true)
         var divisor = divisor
         if (value == 0L) return this
         if (divisor is Point) {
             return point(value % divisor.value)
         }
         if (value != minPossible) {
-            val abs = Math.abs(value)
+            val abs = value.absoluteValue
             if (!divisor.intersects(range(-abs, abs))) {
                 // like 10 % [15..20] == 10 regardless on exact divisor value
                 return this
             }
         }
-        var addend = empty()
-        if (divisor.contains(minPossible)) {
-            divisor = divisor.subtract(point(minPossible))
-            addend = point(value)
+        var divisorMin = divisor.min
+        if (divisorMin == minPossible) {
+            divisorMin += 1
         }
-        val max = Math.max(0, Math.max(Math.abs(divisor.min), Math.abs(divisor.max)) - 1)
-        return if (value < 0) {
-            range(Math.max(value, -max), 0).unite(addend)
-        } else {
-            // 10 % [-4..7] is [0..6], but 10 % [-30..30] is [0..10]
-            range(0, Math.min(value, max)).unite(addend)
-        }
+        val max = max(0, max(divisorMin.absoluteValue, divisor.max.absoluteValue) - 1)
+        return if (value < 0) range(max(value, -max), 0)
+        else range(0, min(value, max)) // 10 % [-4..7] is [0..6], but 10 % [-30..30] is [0..10]
     }
 
     override val stream: LongStream get() = LongStream.of(value)
@@ -499,18 +499,19 @@ class Point(val value: Long, type: TyInteger, overflow: Boolean) : LongRangeSet(
 
     override fun equals(other: Any?): Boolean =
         if (other === this) true
-        else other is Point && value == other.value && overflow == other.overflow
+        else other is Point && value == other.value
 
     override fun toString(): String = "{$value}"
 }
 
-class Range(val from: Long, val to: Long, type: TyInteger, overflow: Boolean) : LongRangeSet(type, overflow) {
+class Range(val from: Long, val to: Long, type: TyInteger) : LongRangeSet(type) {
     init {
         if (from >= to) throw IllegalArgumentException("$from >= $to")
     }
 
     override fun subtract(other: LongRangeSet): LongRangeSet {
         if (other.isEmpty) return this
+        if (other.isUnknown) return other
         if (other === this) return empty()
         if (other is Point) {
             val value = other.value
@@ -672,7 +673,7 @@ class Range(val from: Long, val to: Long, type: TyInteger, overflow: Boolean) : 
     override fun hashCode(): Int = from.hashCode() * 1337 + to.hashCode()
 
     override fun equals(other: Any?): Boolean =
-        if (other === this) true else other is Range && overflow == other.overflow && from == other.from && to == other.to
+        if (other === this) true else other is Range && from == other.from && to == other.to
 
     override fun toString(): String = "{${toString(from, to)}}"
 
@@ -710,41 +711,43 @@ class Range(val from: Long, val to: Long, type: TyInteger, overflow: Boolean) : 
 private fun toString(from: Long, to: Long): String =
     if (from == to) from.toString() else "$from${if (to - from == 1L) ", " else ".."}$to"
 
-fun TyInteger.minPossible(): Long =
-    when (this) {
-        is TyInteger.I8 -> Byte.MIN_VALUE.toLong()
-        is TyInteger.U8 -> 0L
-        is TyInteger.I16 -> Short.MIN_VALUE.toLong()
-        is TyInteger.U16 -> 0L
-        is TyInteger.I32 -> Int.MIN_VALUE.toLong()
-        is TyInteger.U32 -> 0L
-        is TyInteger.I64 -> Long.MIN_VALUE
-        is TyInteger.U64 -> 0L
-        is TyInteger.I128 -> Long.MIN_VALUE
-        is TyInteger.U128 -> 0L
-        is TyInteger.ISize -> TyInteger.I64.minPossible()
-        is TyInteger.USize -> TyInteger.U64.minPossible()
-    }
+val TyInteger.MIN_POSSIBLE: Long
+    get() =
+        when (this) {
+            is TyInteger.I8 -> Byte.MIN_VALUE.toLong()
+            is TyInteger.U8 -> 0L
+            is TyInteger.I16 -> Short.MIN_VALUE.toLong()
+            is TyInteger.U16 -> 0L
+            is TyInteger.I32 -> Int.MIN_VALUE.toLong()
+            is TyInteger.U32 -> 0L
+            is TyInteger.I64 -> Long.MIN_VALUE
+            is TyInteger.U64 -> 0L
+            is TyInteger.I128 -> Long.MIN_VALUE
+            is TyInteger.U128 -> 0L
+            is TyInteger.ISize -> TyInteger.I64.MIN_POSSIBLE
+            is TyInteger.USize -> TyInteger.U64.MIN_POSSIBLE
+        }
 
-fun TyInteger.maxPossible(): Long =
-    when (this) {
-        is TyInteger.I8 -> Byte.MAX_VALUE.toLong()
-        is TyInteger.U8 -> 255L
-        is TyInteger.I16 -> Short.MAX_VALUE.toLong()
-        is TyInteger.U16 -> 65_535L
-        is TyInteger.I32 -> Int.MAX_VALUE.toLong()
-        is TyInteger.U32 -> 4_294_967_295L
-        is TyInteger.I64 -> Long.MAX_VALUE
-        is TyInteger.U64 -> Long.MAX_VALUE
-        is TyInteger.I128 -> Long.MAX_VALUE
-        is TyInteger.U128 -> Long.MAX_VALUE
-        is TyInteger.ISize -> TyInteger.I64.maxPossible()
-        is TyInteger.USize -> TyInteger.U64.maxPossible()
-    }
+val TyInteger.MAX_POSSIBLE: Long
+    get() =
+        when (this) {
+            is TyInteger.I8 -> Byte.MAX_VALUE.toLong()
+            is TyInteger.U8 -> 255L
+            is TyInteger.I16 -> Short.MAX_VALUE.toLong()
+            is TyInteger.U16 -> 65_535L
+            is TyInteger.I32 -> Int.MAX_VALUE.toLong()
+            is TyInteger.U32 -> 4_294_967_295L
+            is TyInteger.I64 -> Long.MAX_VALUE
+            is TyInteger.U64 -> Long.MAX_VALUE
+            is TyInteger.I128 -> Long.MAX_VALUE
+            is TyInteger.U128 -> Long.MAX_VALUE
+            is TyInteger.ISize -> TyInteger.I64.MAX_POSSIBLE
+            is TyInteger.USize -> TyInteger.U64.MAX_POSSIBLE
+        }
 
-private fun rangeFromType(type: TyInteger): Range = with(type) { Range(minPossible(), maxPossible(), this, false) }
+private fun rangeFromType(type: TyInteger): Range = with(type) { Range(MIN_POSSIBLE, MAX_POSSIBLE, this) }
 
-class RangeSet(val ranges: LongArray, type: TyInteger, overflow: Boolean) : LongRangeSet(type, overflow) {
+class RangeSet(val ranges: LongArray, type: TyInteger) : LongRangeSet(type) {
     init {
         if (ranges.size < 4 || ranges.size % 2 != 0) {
             // 0 ranges = Empty; 1 range = Range
@@ -872,7 +875,7 @@ class RangeSet(val ranges: LongArray, type: TyInteger, overflow: Boolean) : Long
 
     override fun equals(other: Any?): Boolean =
         if (other === this) true
-        else other is RangeSet && overflow == other.overflow && ranges.contentEquals(other.ranges)
+        else other is RangeSet && ranges.contentEquals(other.ranges)
 
     override fun toString(): String {
         val sb = StringBuilder("{")
@@ -916,18 +919,40 @@ private val TyInteger.size: Long
         TyInteger.USize -> 64
     }
 
-private fun LongRangeSet.checkOverflow(value: Long): Long {
-    var value = value
-    if (value > maxPossible) {
-        value -= maxPossible
-        value -= 1
-        value += minPossible
-    } else if (value > minPossible) {
-        value -= minPossible
-        value += 1
-        value += maxPossible
+
+private val TyInteger.isLargeOnTop: Boolean
+    get() = when (this) {
+        TyInteger.U64 -> true
+        TyInteger.I128 -> true
+        TyInteger.U128 -> true
+        TyInteger.USize -> true
+        else -> false
     }
-    return value
+
+private val TyInteger.isLargeBelow: Boolean
+    get() = when (this) {
+        TyInteger.I128 -> true
+        else -> false
+    }
+
+private val TyInteger.isLarge: Boolean get() = this.isLargeOnTop || this.isLargeBelow
+
+private fun Long.overflowCorrection(type: TyInteger): Long {
+    val maxPossible = type.MAX_POSSIBLE
+    val minPossible = type.MIN_POSSIBLE
+    return when {
+        this > maxPossible -> maxPossible
+        this < minPossible -> minPossible
+        else -> this
+    }
+}
+
+private fun pointOrOverflowOrUnknown(value: Long, type: TyInteger): LongRangeSet = with(type) {
+    when {
+        value < MIN_POSSIBLE -> if (isLargeBelow) unknown() else empty(true)
+        value > MAX_POSSIBLE -> if (isLargeOnTop) unknown() else empty(true)
+        else -> point(value, type)
+    }
 }
 
 private fun splitAtZero(ranges: LongArray): LongArray {

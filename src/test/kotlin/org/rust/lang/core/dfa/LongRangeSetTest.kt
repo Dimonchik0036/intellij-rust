@@ -25,8 +25,9 @@ import kotlin.test.assertNotEquals
 
 class LongRangeSetTest : RsTestBase() {
     fun `test to string`() {
+        checkSet("{}", empty())
+        checkSet("{!}", empty(true))
         TyInteger.VALUES.forEach {
-            checkSet("{}", empty())
             checkSet("{10}", point(10, it))
             checkSet("{10}", range(10, 10, it))
             checkSet("{10, 11}", range(10, 11, it))
@@ -124,12 +125,9 @@ class LongRangeSetTest : RsTestBase() {
         map[empty()] = "empty"
         map[empty(overflow = true)] = "empty_o"
         map[unknown()] = "unknown"
-        map[unknown(overflow = true)] = "unknown_o"
         map[point(10)] = "10"
-        map[point(10, overflow = true)] = "10_o"
         map[range(10, 10)] = "10-10"
         map[range(10, 11)] = "10-11"
-        map[range(10, 11, overflow = true)] = "10-11_o"
         map[range(10, 12)] = "10-12"
         map[set(longArrayOf(0, 5, 8, 10))] = "0-5,8-10"
         val longNotChar = fromType(TyInteger.I64)!!.subtract(fromType(TyInteger.U16)!!)
@@ -138,11 +136,8 @@ class LongRangeSetTest : RsTestBase() {
         assertEquals("empty", map[empty()])
         assertEquals("empty_o", map[empty(overflow = true)])
         assertEquals("unknown", map[unknown()])
-        assertEquals("unknown_o", map[unknown(overflow = true)])
         assertEquals("10-10", map[point(10)])
         assertEquals("10-10", map[range(10, 10)])
-        assertEquals("10_o", map[point(10, overflow = true)])
-        assertEquals("10-11_o", map[range(10, 11, overflow = true)])
         assertEquals("10-11", map[range(10, 11)])
         assertEquals("10-12", map[range(10, 12)])
         assertEquals("0-5,8-10", map[set(longArrayOf(0, 5, 8, 10))])
@@ -244,8 +239,12 @@ class LongRangeSetTest : RsTestBase() {
     fun `test from constant`() {
         checkSet("{0}", fromConstant(0, TyInteger.I8))
         checkSet("{-20}", fromConstant(-20, TyInteger.I8))
+        checkSet("{!}", fromConstant(-20, TyInteger.U8))
         checkSet("{1}", fromConstant(1, TyInteger.I8))
         checkSet("{42}", fromConstant(42, TyInteger.I8))
+        checkSet("{?}", fromConstant(null, TyInteger.I128))
+        checkSet("{42}", fromConstant(42, TyInteger.I128))
+        checkSet("{!}", fromConstant(-10, TyInteger.U128))
     }
 
     fun `test from relation`() {
@@ -292,6 +291,15 @@ class LongRangeSetTest : RsTestBase() {
         val set = range(-900, 1000).subtract(range(-800, -600)).subtract(range(-300, 100)).subtract(range(500, 700))
         checkSet("{-900..-801, -599..-301, 101..499, 701..1000}", set)
         checkSet("{-1000..-701, -499..-101, 301..599, 801..900}", -set)
+    }
+
+    fun `test contains`() {
+        assertTrue(range(0, 10).contains(5))
+        assertTrue(range(0, 10).unite(range(13, 20)).contains(point(5)))
+        assertTrue(range(0, 10).unite(range(13, 20)).contains(empty()))
+        assertFalse(range(0, 10).unite(range(13, 20)).contains(point(12)))
+        assertFalse(range(0, 10).unite(range(13, 20)).contains(range(9, 15)))
+        assertTrue(range(0, 10).unite(range(13, 20)).contains(range(2, 8).unite(range(15, 17))))
     }
 
     private fun checkSet(expected: String, actual: LongRangeSet?) = assertEquals(expected, actual.toString())
@@ -387,15 +395,6 @@ class LongRangeSetTest : RsTestBase() {
 //            "{${Int.MIN_VALUE}, 1073741814..${Int.MAX_VALUE}}",
 //            true
 //        )
-//    }
-//
-//    fun `test contains`() {
-//        assertTrue(range(0, 10).contains(5))
-//        assertTrue(range(0, 10).union(range(13, 20)).contains(point(5)))
-//        assertTrue(range(0, 10).union(range(13, 20)).contains(empty()))
-//        assertFalse(range(0, 10).union(range(13, 20)).contains(point(12)))
-//        assertFalse(range(0, 10).union(range(13, 20)).contains(range(9, 15)))
-//        assertTrue(range(0, 10).union(range(13, 20)).contains(range(2, 8).union(range(15, 17))))
 //    }
 //
 //    fun testAdd() {

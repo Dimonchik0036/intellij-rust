@@ -63,9 +63,10 @@ class DfaConstFactory(val factory: DfaValueFactory) {
 
         return when (kind) {
             is RsLiteralKind.Integer -> {
-                val value = kind.offsets.value?.substring(kind.node.text)?.filter { it != '_' }?.toLongOrNull()
-                    ?: return DfaUnknownValue
-                factory.createFactValue(DfaFactType.RANGE, LongRangeSet.fromConstant(value, expr.type))
+                val number = kind.offsets.value?.substring(kind.node.text)?.filter { it != '_' }?.toLongOrNull()
+                val range = LongRangeSet.fromConstant(number, expr.type)
+                if (range != null) factory.createFactValue(DfaFactType.RANGE, range)
+                else DfaUnknownValue
 //                createFromValue(value, expr.type)
             }
             is RsLiteralKind.Boolean -> createFromValue(kind.value, TyBool)

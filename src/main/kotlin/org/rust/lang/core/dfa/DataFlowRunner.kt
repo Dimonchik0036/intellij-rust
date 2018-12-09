@@ -312,6 +312,7 @@ class DataFlowRunner(val function: RsFunction) {
                 val state = getStateWithCheck(node.index)
                 val bin = pat.patBinding
                 val expr = element.expr
+                // TODO add type check
                 val value = if (expr != null) valueFromExpr(expr, state) else valueFactory.createTypeValue(bin.type)
                 setState(node.index, state.plus(bin, value))
             }
@@ -332,7 +333,7 @@ class DataFlowRunner(val function: RsFunction) {
         return tuple.exprList.map { valueFromExpr(it, state) }
     }
 
-    private fun getValueFromElement(element: RsPatBinding, state: DfaMemoryState): DfaValue = state.get(element)
+    private fun getValueFromElement(element: RsPatBinding, state: DfaMemoryState): DfaValue = state[element]
 
     private fun valueFromExpr(expr: RsExpr?, state: DfaMemoryState): DfaValue {
         val expr = expr?.skipParenExprDown() ?: return DfaUnknownValue

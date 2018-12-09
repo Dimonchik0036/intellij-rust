@@ -8,7 +8,6 @@ package org.rust.ide.inspections
 import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemsHolder
 import org.rust.ide.utils.skipParenExprDown
-import org.rust.lang.core.cfg.ControlFlowGraph.Companion.buildFor
 import org.rust.lang.core.dfa.DataFlowRunner
 import org.rust.lang.core.dfa.DfaMemoryState
 import org.rust.lang.core.dfa.RunnerResult

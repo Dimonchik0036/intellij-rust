@@ -6,6 +6,10 @@
 package org.rust.ide.inspections
 
 import org.intellij.lang.annotations.Language
+import org.rust.lang.core.psi.RsFunction
+import org.rust.lang.core.type.RsNumericLiteralTypeInferenceTest
+import org.rust.lang.core.types.infer.inferTypesIn
+import org.rust.lang.core.types.inference
 
 class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantConditionInspection()) {
     fun `test declaration from integer constant`() = checkDeclaration("42", "{42}")
@@ -19,6 +23,13 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
     private fun checkDeclaration(expression: String, value: String) = checkWithExpandValues("""
         fn main() {
             let x/*$value*/ = $expression;
+        }
+    """)
+
+    fun `test declaration from overflow expression`() = checkWithExpandValues("""
+        fn main() {
+            let x/*{200}*/: u8 = 200;
+            let y/*{!}*/= x * 2;
         }
     """)
 
