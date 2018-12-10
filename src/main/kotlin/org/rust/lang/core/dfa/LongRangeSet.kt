@@ -263,12 +263,13 @@ sealed class LongRangeSet(val type: TyInteger) {
         if (leftLeft > maxPossible || rightValue < minPossible) empty(true)
         else range(overflowCorrection(leftValue), overflowCorrection(rightValue))
     } catch (e: ArithmeticException) {
-        Unknown
+        // TODO i64 * i64 not unknown
+        unknown()
     }
 
     protected fun overflowCorrection(value: Long): Long = when {
-        value < minPossible -> minPossible
-        value > maxPossible -> maxPossible
+        value <= minPossible -> minPossible
+        value >= maxPossible -> maxPossible
         else -> value
     }
 
@@ -407,11 +408,11 @@ object Unknown : LongRangeSet(TyInteger.I64) {
 
     override val max: Long get() = throw NoSuchElementException()
 
-    override fun intersects(other: LongRangeSet): Boolean = throw UnsupportedOperationException()
+    override fun intersects(other: LongRangeSet): Boolean = true
 
-    override operator fun contains(value: Long): Boolean = throw UnsupportedOperationException()
+    override operator fun contains(value: Long): Boolean = true
 
-    override operator fun contains(other: LongRangeSet): Boolean = throw UnsupportedOperationException()
+    override operator fun contains(other: LongRangeSet): Boolean = true
 
     override val abs: LongRangeSet get() = this
 
@@ -439,36 +440,47 @@ class Point(val value: Long, type: TyInteger) : LongRangeSet(type) {
         else -> this
     }
 
-    override fun intersect(other: LongRangeSet): LongRangeSet = if (other.isUnknown) other else if (value in other) this else empty()
+    override fun intersect(other: LongRangeSet): LongRangeSet = when {
+        other.isUnknown -> other
+        value in other -> this
+        else -> empty()
+    }
 
     override val min: Long get() = value
 
     override val max: Long get() = value
 
-    override fun intersects(other: LongRangeSet): Boolean = other.contains(value)
+    override fun intersects(other: LongRangeSet): Boolean = value in other
 
     override operator fun contains(value: Long): Boolean = this.value == value
 
-    override operator fun contains(other: LongRangeSet): Boolean = other.isEmpty || equals(other)
+    override operator fun contains(other: LongRangeSet): Boolean = other.isEmpty || other.isUnknown || this == other
 
-    override val abs: LongRangeSet get() = if (value >= 0) this else if (value == minPossible) empty(true) else point(-value)
+    override val abs: LongRangeSet
+        get() = when {
+            value >= 0 -> this
+            value == minPossible -> empty(true)
+            else -> point(-value)
+        }
 
     override operator fun unaryMinus(): LongRangeSet = if (value == minPossible) empty(true) else point(-value)
 
     override operator fun plus(other: LongRangeSet): LongRangeSet = when {
-        other.isEmpty -> other
+        other.isEmpty || other.isUnknown -> other
         other is Point -> try {
             val result = checkedAdd(value, other.value)
             if (result == overflowCorrection(result)) point(result)
             else empty(true)
         } catch (e: ArithmeticException) {
+            // TODO i64 * i64 not unknown
             unknown()
         }
         else -> other + this
     }
 
     override operator fun rem(divisor: LongRangeSet): LongRangeSet {
-        if (divisor.isUnknown) return unknown()
+        if (divisor.isUnknown) return divisor
+        // TODO div by zero is overflow or empty?
         if (divisor.isEmpty || divisor is Point && divisor.value == 0L) return empty(true)
         var divisor = divisor
         if (value == 0L) return this
@@ -545,7 +557,7 @@ class Range(val from: Long, val to: Long, type: TyInteger) : LongRangeSet(type) 
 
     override fun intersect(other: LongRangeSet): LongRangeSet {
         if (other === this) return this
-        if (other.isEmpty) return other
+        if (other.isEmpty || other.isUnknown) return other
         if (other is Point) {
             return other.intersect(this)
         }
@@ -583,7 +595,7 @@ class Range(val from: Long, val to: Long, type: TyInteger) : LongRangeSet(type) 
 
     override operator fun contains(value: Long): Boolean = value in from..to
 
-    override operator fun contains(other: LongRangeSet): Boolean = other.isEmpty || other.min >= from && other.max <= to
+    override operator fun contains(other: LongRangeSet): Boolean = other.isEmpty || other.isUnknown || other.min >= from && other.max <= to
 
     override val abs: LongRangeSet
         get() {
@@ -598,7 +610,7 @@ class Range(val from: Long, val to: Long, type: TyInteger) : LongRangeSet(type) 
                 hi = -low
                 low = -this.to
             } else {
-                hi = Math.max(-low, hi)
+                hi = max(-low, hi)
                 low = 0
             }
             return range(low, hi)
@@ -606,58 +618,50 @@ class Range(val from: Long, val to: Long, type: TyInteger) : LongRangeSet(type) 
 
     override operator fun unaryMinus(): LongRangeSet {
         val minValue = minPossible
-        return if (this.from <= minValue)
-            if (this.to >= maxPossible) type.toRange()
+        return if (this.from == minValue)
+            if (this.to == maxPossible) type.toRange()
             else range(-this.to, -(minValue + 1))
         else range(-this.to, -this.from)
     }
 
     override operator fun plus(other: LongRangeSet): LongRangeSet {
-        if (other.isEmpty) return other
-        if (equals(type.toRange())) return this
-        if (other is Point || other is Range || other is RangeSet && other.ranges.size > 6) {
+        if (other.isEmpty || other.isUnknown) return other
+        if (other is Point || other is Range /*|| other is RangeSet TODO optimization && other.ranges.size > 6*/) {
             return plus(from, to, other.min, other.max)
         }
         val ranges = other.asRanges
         var result = empty()
         for (i in ranges.indices step 2) {
             result = result.unite(plus(this.from, this.to, ranges[i], ranges[i + 1]))
+            if (result.isUnknown) return result
         }
         return result
     }
 
-    fun plus(from1: Long, to1: Long, from2: Long, to2: Long): LongRangeSet {
-        val len1 = to1 - from1 // may overflow
-        val len2 = to2 - from2 // may overflow
-        /* total length more than 2^32*/
-        if ((len1 < 0 || len2 < 0) && len1 + len2 + 1 >= 0) return type.toRange()
-        val from = from1 + from2
-        val to = to1 + to2
-        val range = type.toRange()
-        // TODO ?
-        if (to - from + 1 >= range.max) return range
-        return if (to < from) set(longArrayOf(minPossible, to, from, maxPossible)) else range(from, to)
+    fun plus(from1: Long, to1: Long, from2: Long, to2: Long): LongRangeSet = try {
+        val from = checkedAdd(from1, from2)
+        val to = checkedAdd(to1, to2)
+        if (from > maxPossible || to < minPossible) empty(true)
+        else range(overflowCorrection(from), overflowCorrection(to))
+    } catch (e: ArithmeticException) {
+        // TODO i64 * i64 not unknown
+        unknown()
     }
 
     override operator fun rem(divisor: LongRangeSet): LongRangeSet {
-        if (divisor.isEmpty || divisor == point(0)) return empty()
-        if (divisor is Point && divisor.value == Long.MIN_VALUE) {
-            return if (contains(Long.MIN_VALUE)) this.subtract(divisor).unite(point(0)) else this
+        if (divisor.isUnknown) return divisor
+        // TODO divide by zero is overflow or empty?
+        if (divisor.isEmpty || divisor == point(0)) return empty(true)
+        if (divisor is Point && divisor.value == minPossible) {
+            return if (contains(minPossible)) subtract(divisor).unite(point(0)) else this
         }
-        if (divisor.contains(Long.MIN_VALUE)) return possibleMod()
+        if (divisor.contains(minPossible)) return possibleMod()
         val min = divisor.min
         val max = divisor.max
-        val maxDivisor = Math.max(Math.abs(min), Math.abs(max))
-        val minDivisor = if (min > 0) min else if (max < 0) Math.abs(max) else 0
-        return if (!intersects(range(Long.MIN_VALUE, -minDivisor)) && !intersects(
-                range(
-                    minDivisor,
-                    Long.MAX_VALUE
-                )
-            )
-        ) {
-            this
-        } else possibleMod().intersect(range(-maxDivisor + 1, maxDivisor - 1))
+        val maxDivisor = max(min.absoluteValue, max.absoluteValue)
+        val minDivisor = if (min > 0) min else if (max < 0) max.absoluteValue else 0
+        return if (!intersects(range(minPossible, -minDivisor)) && !intersects(range(minDivisor, maxPossible))) this
+        else possibleMod().intersect(range(-maxDivisor + 1, maxDivisor - 1))
     }
 
     private fun possibleMod(): LongRangeSet = when {
@@ -762,6 +766,7 @@ class RangeSet(val ranges: LongArray, type: TyInteger) : LongRangeSet(type) {
     }
 
     override fun subtract(other: LongRangeSet): LongRangeSet {
+        if (other.isUnknown) return other
         if (other.isEmpty) return this
         if (other === this) return empty()
         val result = LongArray(ranges.size + other.asRanges.size)
@@ -777,7 +782,7 @@ class RangeSet(val ranges: LongArray, type: TyInteger) : LongRangeSet(type) {
 
     override fun intersect(other: LongRangeSet): LongRangeSet = when {
         other === this -> this
-        other.isEmpty -> other
+        other.isEmpty || other.isUnknown -> other
         other is Point || other is Range -> other.intersect(this)
         else -> subtract(allRange.subtract(other))
     }
@@ -788,7 +793,8 @@ class RangeSet(val ranges: LongArray, type: TyInteger) : LongRangeSet(type) {
 
     override fun intersects(other: LongRangeSet): Boolean {
         if (other.isEmpty) return false
-        if (other is Point) return contains(other.value)
+        if (other.isUnknown) return true
+        if (other is Point) return other.value in this
         val otherRanges = other.asRanges
         var a = 0
         var b = 0
@@ -817,6 +823,7 @@ class RangeSet(val ranges: LongArray, type: TyInteger) : LongRangeSet(type) {
 
     override operator fun contains(other: LongRangeSet): Boolean {
         if (other.isEmpty || other === this) return true
+        if (other.isUnknown) return false
         if (other is Point) return contains(other.value)
         var result = other
         for (i in ranges.indices step 2) {
@@ -844,16 +851,20 @@ class RangeSet(val ranges: LongArray, type: TyInteger) : LongRangeSet(type) {
     }
 
     override operator fun plus(other: LongRangeSet): LongRangeSet {
-        if (ranges.size > 6) return range(min, max) + other
+        if (other.isUnknown) return other
+        //TODO optimization
+//        if (ranges.size > 6) return range(min, max) + other
         var result = empty()
         for (i in ranges.indices step 2) {
             result = result.unite(range(ranges[i], ranges[i + 1]) + other)
+            if (result.isUnknown) return result
         }
         return result
     }
 
     override operator fun rem(divisor: LongRangeSet): LongRangeSet {
-        if (divisor.isEmpty) return empty()
+        if (divisor.isEmpty) return empty(true)
+        if (divisor.isUnknown) return divisor
         var result = empty()
         for (i in ranges.indices step 2) {
             result = result.unite(range(ranges[i], ranges[i + 1]) % divisor)
