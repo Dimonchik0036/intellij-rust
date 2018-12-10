@@ -14,6 +14,10 @@ import org.rust.lang.core.types.inference
 class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantConditionInspection()) {
     fun `test declaration from integer constant`() = checkDeclaration("42", "{42}")
 
+    fun `test declaration from integer constant with suffix`() = checkDeclaration("42u16", "{42}")
+
+    fun `test declaration from integer constant with separator`() = checkDeclaration("1_000__000", "{1000000}")
+
     fun `test declaration from unary expression`() = checkDeclaration("-42", "{-42}")
 
     fun `test declaration from binary expression`() = checkDeclaration("21 + 21", "{42}")
@@ -29,7 +33,7 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
     fun `test declaration from overflow expression`() = checkWithExpandValues("""
         fn main() {
             let x/*{200}*/: u8 = 200;
-            let y/*{!}*/= x * 2;
+            let y/*{!}*/: u8 = x * 2u8;
         }
     """)
 
