@@ -38,7 +38,12 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
     """)
 
     fun `test declaration from arguments`() = checkWithExpandValues("""
-        fn foo(a/*{-2147483648..2147483647}*/: i32, b/*{?}*/: bool, c/*{0..255}*/: u8) { }
+        fn foo(
+            a/*{-2147483648..2147483647}*/: i32,
+            b/*{?}*/: bool,
+            c/*{0..255}*/: u8,
+            d/*{-9223372036854775808..9223372036854775807}*/: i128
+            ) { }
     """)
 
     fun `test declaration from tuple of 2 elements`() = checkWithExpandValues("""
