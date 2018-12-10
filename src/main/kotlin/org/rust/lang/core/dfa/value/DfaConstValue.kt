@@ -41,8 +41,9 @@ class DfaConstValue(factory: DfaValueFactory, val value: Any, override val type:
     override fun unite(other: DfaValue): DfaValue = when {
         other !is DfaConstValue -> DfaUnknownValue
         this == other -> this
-        this == dfaTrue || other == dfaTrue -> dfaTrue
-        else -> dfaFalse
+        this == dfaNothing -> other
+        other == dfaNothing -> this
+        else -> DfaUnknownValue
     }
 
     override fun toString(): String = if (isEmpty) "{}" else "{$value}"

@@ -22,7 +22,8 @@ class DfaMemoryState private constructor(val variableStates: SmartFMap<Variable,
 
     val invert: DfaMemoryState get() = EMPTY.plusAll(variableStates.asSequence().map { it.key to it.value.invert }.toMap())
 
-    operator fun get(variable: Variable): DfaValue = variableStates[variable] ?: DfaUnknownValue
+    operator fun get(variable: Variable): DfaValue? = variableStates[variable]
+    fun getOrUnknown(variable: Variable): DfaValue = get(variable) ?: DfaUnknownValue
 
     operator fun contains(variable: Variable): Boolean = variable in variableStates
 
@@ -33,7 +34,7 @@ class DfaMemoryState private constructor(val variableStates: SmartFMap<Variable,
 
     private fun unite(variable: Variable, value: DfaValue): DfaValue {
         val oldValue = get(variable)
-        return if (oldValue !is DfaUnknownValue) oldValue.unite(value) else value
+        return oldValue?.unite(value) ?: value
     }
 
     fun intersect(other: DfaMemoryState): DfaMemoryState = plusAll(other.variableStates.map { it.key to intersect(it.key, it.value) }.toMap())

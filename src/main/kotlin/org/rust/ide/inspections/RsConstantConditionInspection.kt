@@ -13,11 +13,15 @@ import org.rust.lang.core.dfa.DfaMemoryState
 import org.rust.lang.core.dfa.RunnerResult
 import org.rust.lang.core.psi.*
 import org.rust.lang.core.psi.ext.RsElement
+import org.rust.lang.core.types.ty.TyBool
+import org.rust.lang.core.types.ty.TyInteger
+import org.rust.lang.core.types.type
 
 class RsConstantConditionInspection : RsLocalInspectionTool() {
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean) =
         object : RsVisitor() {
             override fun visitFunction(o: RsFunction) {
+                if (o.block == null) return
 //                val block = o.block ?: return
 //                val cfg = buildFor(block)
 //                println(cfg.createDotDescription())
@@ -56,8 +60,10 @@ private fun createDescription(holder: ProblemsHolder, runner: DataFlowRunner) {
 
 private fun addStates(holder: ProblemsHolder, state: DfaMemoryState?) {
     if (state == null) return
-    state.variableStates.forEach {
-        holder.registerProblem(it.key, "Value is '${it.value}'", ProblemHighlightType.WEAK_WARNING)
+    state.variableStates.forEach { variable, value ->
+        when (variable.type) {
+            is TyBool, is TyInteger -> holder.registerProblem(variable, "Value is '$value'", ProblemHighlightType.WEAK_WARNING)
+        }
     }
 }
 

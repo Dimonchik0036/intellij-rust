@@ -6,10 +6,6 @@
 package org.rust.ide.inspections
 
 import org.intellij.lang.annotations.Language
-import org.rust.lang.core.psi.RsFunction
-import org.rust.lang.core.type.RsNumericLiteralTypeInferenceTest
-import org.rust.lang.core.types.infer.inferTypesIn
-import org.rust.lang.core.types.inference
 
 class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantConditionInspection()) {
     fun `test declaration from integer constant`() = checkDeclaration("42", "{42}")
@@ -26,7 +22,7 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
 
     private fun checkDeclaration(expression: String, value: String) = checkWithExpandValues("""
         fn main() {
-            let x/*$value*/ = $expression;
+            let x/*$value*/: i32 = $expression;
         }
     """)
 
@@ -62,6 +58,35 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
         fn foo() -> i8 { 42 }
         fn main() {
             let x/*{-128..127}*/ = foo();
+        }
+    """)
+
+    fun `test declaration equal to myself`() = checkWithExpandValues("""
+        fn foo(a/*{?}*/: bool) {
+            let t/*{true}*/ = a == a;
+            let f/*{false}*/ = a != a;
+        }
+    """)
+
+    fun `test declaration equal to other with unknown`() = checkWithExpandValues("""
+        fn foo(a/*{?}*/: bool, b/*{?}*/: bool) {
+            let x/*{?}*/ = a == b;
+            let y/*{?}*/ = a != b;
+        }
+    """)
+
+    fun `test declaration equal to other with constant`() = checkWithExpandValues("""
+        fn foo(a/*{?}*/: bool) {
+            let b/*{true}*/ = true;
+            let x/*{?}*/ = a == b;
+            let y/*{?}*/ = a != b;
+        }
+    """)
+
+    fun `test declaration with identical names`() = checkWithExpandValues("""
+        fn foo(a/*{?}*/: bool) {
+            let t/*{true}*/ = a == a;
+            let f/*{false}*/ = a != a;
         }
     """)
 
