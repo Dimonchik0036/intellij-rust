@@ -17,7 +17,7 @@ data class DfaCondition(val threeState: ThreeState, val trueState: DfaMemoryStat
 
         trueState = trueState.minusAll(emptyKeys)
         falseState = falseState.minusAll(emptyKeys)
-        val threeState = if (falseState.empty) ThreeState.YES else this.threeState.or(other.threeState)
+        val threeState = if (emptyKeys.isNotEmpty() && falseState.empty) ThreeState.YES else this.threeState.or(other.threeState)
         return DfaCondition(threeState, trueState, falseState)
     }
 
@@ -28,7 +28,7 @@ data class DfaCondition(val threeState: ThreeState, val trueState: DfaMemoryStat
 
         trueState = trueState.minusAll(emptyKeys)
         falseState = falseState.minusAll(emptyKeys)
-        val threeState = if (trueState.empty) ThreeState.NO else this.threeState.and(other.threeState)
+        val threeState = if (emptyKeys.isNotEmpty() && trueState.empty) ThreeState.NO else this.threeState.and(other.threeState)
         return DfaCondition(threeState, trueState, falseState)
     }
 

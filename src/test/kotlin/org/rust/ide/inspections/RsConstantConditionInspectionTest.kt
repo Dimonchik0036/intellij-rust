@@ -95,6 +95,68 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
         }
     """)
 
+    fun `test if with literal expression`() = checkWithExpandValues("""
+       fn main() {
+            if <warning descr="Condition is always `true`">true</warning> {
+                // do smth
+            }
+
+            if <warning descr="Condition is always `false`">false</warning> {
+                // do smth
+            }
+       }
+    """)
+
+    fun `test while with literal expression`() = checkWithExpandValues("""
+       fn main() {
+            while <warning descr="Condition is always `false`">false</warning> {
+                // do smth
+            }
+
+            while true {
+                // do smth
+            }
+       }
+    """)
+
+    fun `test simple boolean expression with or`() = checkWithExpandValues("""
+       fn main() {
+            let a/*{true}*/ = true;
+            let b/*{false}*/ = false;
+            if <warning descr="Condition 'a || b' is always 'true'">a || b</warning> {
+                let c/*{true}*/ = a;
+                let d/*{false}*/ = b;
+            } else {
+                let c = b;
+                let d = a;
+            }
+       }
+    """)
+
+    fun `test simple boolean expression with and`() = checkWithExpandValues("""
+       fn main() {
+            let a/*{true}*/ = true;
+            let b/*{false}*/ = false;
+            if <warning descr="Condition 'a && b' is always 'false'">a && b</warning> {
+                let c = a;
+                let d = b;
+            } else {
+                let c/*{false}*/ = b;
+                let d/*{true}*/ = a;
+            }
+       }
+    """)
+
+    fun `test several constant condition`() = checkWithExpandValues("""
+       fn foo(a/*{?}*/: bool) {
+            let b/*{false}*/ = false;
+            let c/*{true}*/ = true;
+            if a || <warning descr="Condition 'c && b' is always 'false'">c && b</warning> || <warning descr="Condition 'b && c' is always 'false'">b && c</warning> {
+
+            }
+       }
+    """)
+
     private fun checkWithExpandValues(@Language("Rust") text: String) {
         checkByText(text)
         checkVariables()
@@ -110,6 +172,7 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
                 if (result != RunnerResult.OK) error("Couldn't analyze `${function.identifier.text}`")
                 val state = runner.resultState ?: error("Couldn't find state for `${function.identifier.text}`")
                 function.descendantsOfType<RsPatBinding>().asSequence()
+                    .filter { it in state }
                     .map {
                         val suffix = myFixture.file.text.substring(it.textRange.endOffset)
                         if (!suffix.startsWith("/*")) error("Couldn't find expected set for `${it.text}`")

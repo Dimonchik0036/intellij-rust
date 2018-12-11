@@ -36,18 +36,20 @@ class DataFlowRunner(val function: RsFunction) {
 
     val constantConditionalExpression
         get(): DfaResult {
-            val trueSet = hashSetOf<BinOpInstruction>()
-            val falseSet = hashSetOf<BinOpInstruction>()
-            instructions.forEach {
-                if (!it.isConst) {
-                    val reachable = it.reachable
-                    if (reachable.isTrueReachable && !reachable.isFalseReachable) {
-                        trueSet += it
-                    } else if (reachable.isFalseReachable && !reachable.isTrueReachable) {
-                        falseSet += it
+            val trueSet = hashSetOf<RsExpr>()
+            val falseSet = hashSetOf<RsExpr>()
+            instructions.asSequence()
+                .filter { element -> instructions.all { other -> element.anchor == other.anchor || element.anchor !in other.anchor } }
+                .forEach {
+                    if (!it.isConst) {
+                        val reachable = it.reachable
+                        if (reachable.isTrueReachable && !reachable.isFalseReachable) {
+                            trueSet += it.anchor
+                        } else if (reachable.isFalseReachable && !reachable.isTrueReachable) {
+                            falseSet += it.anchor
+                        }
                     }
                 }
-            }
             return DfaResult(trueSet, falseSet)
         }
 
@@ -209,7 +211,7 @@ class DataFlowRunner(val function: RsFunction) {
             is RsBinaryExpr -> tryEvaluateBinExpr(expr, state)
             is RsPathExpr -> tryEvaluatePathExpr(expr, state)
             else -> DfaCondition.UNSURE
-        }
+        }.addBinOpIfSure(expr)
     }
 
     private fun DfaCondition.addBinOpIfSure(expr: RsExpr): DfaCondition {
@@ -219,10 +221,10 @@ class DataFlowRunner(val function: RsFunction) {
 
     private fun tryEvaluatePathExpr(expr: RsPathExpr, state: DfaMemoryState): DfaCondition {
         val constValue = valueFromPathExpr(expr, state) as? DfaConstValue ?: return DfaCondition.UNSURE
-        return DfaCondition(fromBool(constValue.value as? Boolean)).addBinOpIfSure(expr)
+        return DfaCondition(fromBool(constValue.value as? Boolean))
     }
 
-    private fun tryEvaluateLitExpr(expr: RsLitExpr): DfaCondition = DfaCondition(fromBool((expr.kind as? RsLiteralKind.Boolean)?.value)).addBinOpIfSure(expr)
+    private fun tryEvaluateLitExpr(expr: RsLitExpr): DfaCondition = DfaCondition(fromBool((expr.kind as? RsLiteralKind.Boolean)?.value))
 
     private fun tryEvaluateUnaryExpr(expr: RsUnaryExpr, state: DfaMemoryState): DfaCondition {
         if (expr.excl == null) return DfaCondition.UNSURE
@@ -235,7 +237,7 @@ class DataFlowRunner(val function: RsFunction) {
         return when (op) {
             is LogicOp -> tryEvaluateBinExprWithLogicOp(op, expr, state)
             // TODO add separately EqualityOp
-            is BoolOp -> tryEvaluateBinExprWithRange(op, expr, state).addBinOpIfSure(expr)
+            is BoolOp -> tryEvaluateBinExprWithRange(op, expr, state)
             else -> DfaCondition.UNSURE
         }
     }
@@ -244,18 +246,10 @@ class DataFlowRunner(val function: RsFunction) {
         val left = expr.left.skipParenExprDown()
         val right = expr.right?.skipParenExprDown() ?: return DfaCondition.UNSURE
         val leftResult = tryEvaluateExpr(left, state)
-        when (op) {
-            LogicOp.OR -> if (leftResult.threeState == ThreeState.YES) return leftResult
-            LogicOp.AND -> if (leftResult.threeState == ThreeState.NO) return leftResult
+        return when (op) {
+            LogicOp.OR -> if (leftResult.threeState == ThreeState.YES) leftResult else leftResult.or(tryEvaluateExpr(right, state))
+            LogicOp.AND -> if (leftResult.threeState == ThreeState.NO) leftResult else leftResult.and(tryEvaluateExpr(right, state))
         }
-
-        val rightResult = tryEvaluateExpr(right, state)
-        val commonResult = when (op) {
-            LogicOp.OR -> leftResult.or(rightResult)
-            LogicOp.AND -> leftResult.and(rightResult)
-        }
-
-        return if (commonResult.threeState != rightResult.threeState) commonResult.addBinOpIfSure(expr) else commonResult
     }
 
     private fun tryEvaluateConst(op: BoolOp, leftExpr: RsExpr?, leftValue: DfaValue, rightExpr: RsExpr?, rightValue: DfaValue): DfaCondition? = when {
@@ -507,3 +501,5 @@ private fun RsExpr.toVariable(): Variable? {
     val expr = skipParenExprDown()
     return if (expr is RsPathExpr) expr.path.reference.resolve() as? Variable else null
 }
+
+private operator fun RsElement.contains(other: RsElement): Boolean = other.textRange in this.textRange

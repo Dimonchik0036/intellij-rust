@@ -12,7 +12,6 @@ import org.rust.lang.core.dfa.DataFlowRunner
 import org.rust.lang.core.dfa.DfaMemoryState
 import org.rust.lang.core.dfa.RunnerResult
 import org.rust.lang.core.psi.*
-import org.rust.lang.core.psi.ext.RsElement
 import org.rust.lang.core.types.ty.TyBool
 import org.rust.lang.core.types.ty.TyInteger
 import org.rust.lang.core.types.type
@@ -42,7 +41,7 @@ class RsConstantConditionInspection : RsLocalInspectionTool() {
             override fun visitWhileExpr(o: RsWhileExpr) {
                 val condition = o.condition?.skipParenExprDown() as? RsLitExpr ?: return
                 if (condition.textMatches("false")) {
-                    holder.registerProblem(condition, "Condition is always false")
+                    holder.registerProblem(condition, "Condition is always `false`")
                 }
             }
         }
@@ -50,8 +49,8 @@ class RsConstantConditionInspection : RsLocalInspectionTool() {
 
 private fun createDescription(holder: ProblemsHolder, runner: DataFlowRunner) {
     val (trueSet, falseSet) = runner.constantConditionalExpression
-    trueSet.forEach { registerConstantBoolean(holder, it.anchor, true) }
-    falseSet.forEach { registerConstantBoolean(holder, it.anchor, false) }
+    trueSet.forEach { registerConstantBoolean(holder, it, true) }
+    falseSet.forEach { registerConstantBoolean(holder, it, false) }
 
 //    registerUnreachableCode(holder, runner.unvisitedElements)
     //dor debug
@@ -71,8 +70,6 @@ private fun addStates(holder: ProblemsHolder, state: DfaMemoryState?) {
 //    elements
 //        .filter { element -> elements.indexOfFirst { element != it && element in it } == -1 }
 //        .forEach { holder.registerProblem(it, "Unreachable code", ProblemHighlightType.WEAK_WARNING) }
-
-private operator fun RsElement.contains(other: RsElement): Boolean = other.textRange in this.textRange
 
 private fun registerConstantBoolean(holder: ProblemsHolder, expr: RsExpr, value: Boolean) {
     holder.registerProblem(expr, "Condition '${expr.text}' is always '$value'")
