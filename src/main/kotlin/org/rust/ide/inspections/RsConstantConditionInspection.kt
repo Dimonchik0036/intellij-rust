@@ -60,9 +60,9 @@ private fun createDescription(holder: ProblemsHolder, runner: DataFlowRunner) {
 
 private fun addStates(holder: ProblemsHolder, state: DfaMemoryState?) {
     if (state == null) return
-    state.variableStates.forEach { variable, value ->
-        when (variable.type) {
-            is TyBool, is TyInteger -> holder.registerProblem(variable, "Value is '$value'", ProblemHighlightType.WEAK_WARNING)
+    state.entries.forEach {
+        when (it.key.type) {
+            is TyBool, is TyInteger -> holder.registerProblem(it.key, "Value is '${it.value}'", ProblemHighlightType.WEAK_WARNING)
         }
     }
 }

@@ -185,8 +185,6 @@ class DataFlowRunner(val function: RsFunction) {
                 updateNextState(ifNode, visitorState)
             }
         }
-        val reachable = DfaReachableBranch.fromThreeState(value.threeState)
-        instructions += BinOpInstruction(reachable, expr)
     }
 
     private fun visitMatchExpr(expr: RsExpr, matchExpr: RsMatchExpr, node: CFGNode, visitorState: NodeVisitorState) {
@@ -214,12 +212,17 @@ class DataFlowRunner(val function: RsFunction) {
         }
     }
 
-    private fun tryEvaluatePathExpr(expr: RsPathExpr, state: DfaMemoryState): DfaCondition {
-        val constValue = valueFromPathExpr(expr, state) as? DfaConstValue ?: return DfaCondition.UNSURE
-        return DfaCondition(fromBool(constValue.value as? Boolean))
+    private fun DfaCondition.addBinOpIfSure(expr: RsExpr): DfaCondition {
+        if (sure) instructions += BinOpInstruction(DfaReachableBranch.fromThreeState(threeState), expr)
+        return this
     }
 
-    private fun tryEvaluateLitExpr(expr: RsLitExpr): DfaCondition = DfaCondition(fromBool((expr.kind as? RsLiteralKind.Boolean)?.value))
+    private fun tryEvaluatePathExpr(expr: RsPathExpr, state: DfaMemoryState): DfaCondition {
+        val constValue = valueFromPathExpr(expr, state) as? DfaConstValue ?: return DfaCondition.UNSURE
+        return DfaCondition(fromBool(constValue.value as? Boolean)).addBinOpIfSure(expr)
+    }
+
+    private fun tryEvaluateLitExpr(expr: RsLitExpr): DfaCondition = DfaCondition(fromBool((expr.kind as? RsLiteralKind.Boolean)?.value)).addBinOpIfSure(expr)
 
     private fun tryEvaluateUnaryExpr(expr: RsUnaryExpr, state: DfaMemoryState): DfaCondition {
         if (expr.excl == null) return DfaCondition.UNSURE
@@ -229,21 +232,30 @@ class DataFlowRunner(val function: RsFunction) {
 
     private fun tryEvaluateBinExpr(expr: RsBinaryExpr, state: DfaMemoryState): DfaCondition {
         val op = expr.operatorType
-        val left = expr.left.skipParenExprDown()
-        val right = expr.right?.skipParenExprDown() ?: return DfaCondition.UNSURE
         return when (op) {
-            is LogicOp -> tryEvaluateBinExprWithLogicOp(op, left, right, state)
-            is BoolOp -> tryEvaluateBinExprWithRange(op, expr, state)
+            is LogicOp -> tryEvaluateBinExprWithLogicOp(op, expr, state)
+            // TODO add separately EqualityOp
+            is BoolOp -> tryEvaluateBinExprWithRange(op, expr, state).addBinOpIfSure(expr)
             else -> DfaCondition.UNSURE
         }
     }
 
-    private fun tryEvaluateBinExprWithLogicOp(op: LogicOp, left: RsExpr, right: RsExpr, state: DfaMemoryState): DfaCondition {
+    private fun tryEvaluateBinExprWithLogicOp(op: LogicOp, expr: RsBinaryExpr, state: DfaMemoryState): DfaCondition {
+        val left = expr.left.skipParenExprDown()
+        val right = expr.right?.skipParenExprDown() ?: return DfaCondition.UNSURE
         val leftResult = tryEvaluateExpr(left, state)
-        return when (op) {
-            LogicOp.OR -> if (leftResult.threeState == ThreeState.YES) leftResult else leftResult.or(tryEvaluateExpr(right, state))
-            LogicOp.AND -> if (leftResult.threeState == ThreeState.NO) leftResult else leftResult.and(tryEvaluateExpr(right, state))
+        when (op) {
+            LogicOp.OR -> if (leftResult.threeState == ThreeState.YES) return leftResult
+            LogicOp.AND -> if (leftResult.threeState == ThreeState.NO) return leftResult
         }
+
+        val rightResult = tryEvaluateExpr(right, state)
+        val commonResult = when (op) {
+            LogicOp.OR -> leftResult.or(rightResult)
+            LogicOp.AND -> leftResult.and(rightResult)
+        }
+
+        return if (commonResult.threeState != rightResult.threeState) commonResult.addBinOpIfSure(expr) else commonResult
     }
 
     private fun tryEvaluateConst(op: BoolOp, leftExpr: RsExpr?, leftValue: DfaValue, rightExpr: RsExpr?, rightValue: DfaValue): DfaCondition? = when {
@@ -300,10 +312,9 @@ class DataFlowRunner(val function: RsFunction) {
             .uniteValue(expr.left.toVariable(), valueFactory.createRange(leftFalseResult))
             .uniteValue(expr.right?.toVariable(), valueFactory.createRange(rightFalseResult))
 
-        val resultRange = leftTrueResult.unite(rightTrueResult)
         return when {
-            resultRange.isEmpty -> DfaCondition(ThreeState.NO, trueState = trueState, falseState = falseState)
-            leftRange in resultRange && rightRange in resultRange -> DfaCondition(ThreeState.YES, trueState = trueState, falseState = falseState)
+            leftTrueResult.isEmpty && rightTrueResult.isEmpty -> DfaCondition(ThreeState.NO, trueState = trueState, falseState = falseState)
+            leftRange in leftTrueResult && rightRange in rightTrueResult -> DfaCondition(ThreeState.YES, trueState = trueState, falseState = falseState)
             else -> DfaCondition(ThreeState.UNSURE, trueState = trueState, falseState = falseState)
         }
     }
@@ -381,10 +392,16 @@ class DataFlowRunner(val function: RsFunction) {
         return valueFactory.createRange(leftRange.binOpFromToken(op, rightRange))
     }
 
+    private fun evaluateBoolExpr(op: BoolOp, left: Boolean, right: Boolean): Boolean = when (op) {
+        is EqualityOp -> if (op is EqualityOp.EQ) left == right else left != right
+        is LogicOp -> if (op is LogicOp.OR) left || right else left && right
+        else -> error("Illegal operation `$op` for boolean")
+    }
+
     private fun valueFromConstValue(op: BinaryOperator, leftExpr: RsExpr?, leftValue: DfaValue, rightExpr: RsExpr?, rightValue: DfaValue): DfaValue? = when {
         leftExpr == null || rightExpr == null -> DfaUnknownValue
-        op !is EqualityOp -> null
-        leftValue is DfaConstValue && rightValue is DfaConstValue -> valueFactory.createBoolValue(if (op is EqualityOp.EQ) leftValue == rightValue else leftValue != rightValue)
+        op !is BoolOp -> null
+        leftValue is DfaConstValue && rightValue is DfaConstValue -> valueFactory.createBoolValue(evaluateBoolExpr(op, leftValue.value as Boolean, rightValue.value as Boolean))
         leftValue is DfaUnknownValue && rightValue is DfaUnknownValue -> if (equalVariable(leftExpr, rightExpr)) valueFactory.createBoolValue(op is EqualityOp.EQ) else DfaUnknownValue
         leftValue is DfaUnknownValue || rightValue is DfaUnknownValue || leftValue is DfaConstValue || rightValue is DfaConstValue -> DfaUnknownValue
         else -> null
@@ -432,8 +449,6 @@ class DataFlowRunner(val function: RsFunction) {
         if (expr != null) {
             val state = getStateWithCheck(whileNode.index)
             val value = tryEvaluateExpr(expr, state)
-            val reachable = DfaReachableBranch.fromThreeState(value.threeState)
-            instructions += BinOpInstruction(reachable, expr)
         }
         // TODO: check expr and visit block
         updateNextState(whileNode, visitorState)

@@ -233,9 +233,10 @@ sealed class LongRangeSet(val type: TyInteger) {
         return plus(-other)
     }
 
+    //TODO make abstract
     operator fun times(other: LongRangeSet): LongRangeSet {
         if (isUnknown || other.isUnknown) return unknown()
-        if (other.isEmpty) return other
+        if (isEmpty || other.isEmpty) return this
         val left = splitAtZero(asRanges)
         val right = splitAtZero(longArrayOf(other.min, other.max))
 
@@ -382,7 +383,7 @@ sealed class Empty(val overflow: Boolean) : LongRangeSet(TyInteger.I64) {
 
     override val stream: LongStream get() = LongStream.empty()
 
-    override val asRanges: LongArray get() = LongArray(0)
+    override val asRanges: LongArray get() = throw UnsupportedOperationException()
 
     override fun hashCode(): Int = 2154231
 
@@ -578,7 +579,9 @@ class Range(val from: Long, val to: Long, type: TyInteger) : LongRangeSet(type) 
         val result = LongArray(ranges.size)
         var index = 0
         for (i in ranges.indices step 2) {
-            val res = intersect(range(ranges[i], ranges[i + 1])).asRanges
+            val part = intersect(range(ranges[i], ranges[i + 1]))
+            if (part.isEmpty) continue
+            val res = part.asRanges
             System.arraycopy(res, 0, result, index, res.size)
             index += res.size
         }
@@ -773,6 +776,7 @@ class RangeSet(val ranges: LongArray, type: TyInteger) : LongRangeSet(type) {
         var index = 0
         for (i in ranges.indices step 2) {
             val res = range(ranges[i], ranges[i + 1]).subtract(other)
+            if (res.isEmpty) continue
             val ranges = res.asRanges
             System.arraycopy(ranges, 0, result, index, ranges.size)
             index += ranges.size

@@ -6,6 +6,11 @@
 package org.rust.ide.inspections
 
 import org.intellij.lang.annotations.Language
+import org.rust.lang.core.dfa.DataFlowRunner
+import org.rust.lang.core.dfa.RunnerResult
+import org.rust.lang.core.psi.RsFunction
+import org.rust.lang.core.psi.RsPatBinding
+import org.rust.lang.core.psi.ext.descendantsOfType
 
 class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantConditionInspection()) {
     fun `test declaration from integer constant`() = checkDeclaration("42", "{42}")
@@ -90,7 +95,30 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
         }
     """)
 
-    private fun checkWithExpandValues(@Language("Rust") text: String) = checkByText(text.expandValues, checkWeakWarn = true)
+    private fun checkWithExpandValues(@Language("Rust") text: String) {
+        checkByText(text)
+        checkVariables()
+    }
+
+    private fun checkVariables() {
+        data class Result(val variable: RsPatBinding, val expected: String, val actual: String)
+
+        val errors = myFixture.file.descendantsOfType<RsFunction>().asSequence()
+            .flatMap { function ->
+                val runner = DataFlowRunner(function)
+                val result = runner.analyze()
+                if (result != RunnerResult.OK) error("Couldn't analyze `${function.identifier.text}`")
+                val state = runner.resultState ?: error("Couldn't find state for `${function.identifier.text}`")
+                function.descendantsOfType<RsPatBinding>().asSequence()
+                    .map {
+                        val suffix = myFixture.file.text.substring(it.textRange.endOffset)
+                        if (!suffix.startsWith("/*")) error("Couldn't find expected set for `${it.text}`")
+                        Result(it, suffix.substring(2).substringBefore("*/"), state.getOrUnknown(it).toString())
+                    }
+            }
+            .filter { it.expected != it.actual }
+        if (!errors.none()) error(errors.joinToString(separator = "\n") { "variable `${it.variable.text}` expected `${it.expected}` actual `${it.actual}`" })
+    }
 
     private val String.expandValues: String
         get() = setOfValuesRegex.replace(this) {

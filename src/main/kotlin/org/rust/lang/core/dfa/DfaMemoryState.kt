@@ -14,20 +14,22 @@ import org.rust.lang.core.psi.RsPatBinding
 
 typealias Variable = RsPatBinding
 
-class DfaMemoryState private constructor(val variableStates: SmartFMap<Variable, DfaValue>) {
+class DfaMemoryState private constructor(private val variableStates: SmartFMap<Variable, DfaValue>) {
     fun plus(variable: Variable?, value: DfaValue = DfaUnknownValue): DfaMemoryState = if (variable != null) DfaMemoryState(variableStates.plus(variable, value)) else this
     fun plusAll(other: Map<Variable, DfaValue>): DfaMemoryState = DfaMemoryState(variableStates.plusAll(other))
     fun minus(variable: Variable?): DfaMemoryState = if (variable != null) DfaMemoryState(variableStates.minus(variable)) else this
     fun minusAll(other: Collection<Variable>): DfaMemoryState = DfaMemoryState(variableStates.minusAll(other))
 
     val invert: DfaMemoryState get() = EMPTY.plusAll(variableStates.asSequence().map { it.key to it.value.invert }.toMap())
+    val emptyKeys: Set<Variable> get() = variableStates.entries.asSequence().filter { it.value.isEmpty }.map { it.key }.toSet()
+    val entries: Set<Map.Entry<Variable, DfaValue>> get() = variableStates.entries
 
     operator fun get(variable: Variable): DfaValue? = variableStates[variable]
     fun getOrUnknown(variable: Variable): DfaValue = get(variable) ?: DfaUnknownValue
 
     operator fun contains(variable: Variable): Boolean = variable in variableStates
 
-    val hasEmpty: Boolean get() = variableStates.any { it.value.isEmpty }
+    val empty: Boolean get() = variableStates.isEmpty() || variableStates.all { it.value.isEmpty }
 
     fun unite(other: DfaMemoryState): DfaMemoryState = plusAll(other.variableStates.map { it.key to unite(it.key, it.value) }.toMap())
     fun uniteValue(variable: Variable?, value: DfaValue): DfaMemoryState = if (variable != null) plus(variable, unite(variable, value)) else this

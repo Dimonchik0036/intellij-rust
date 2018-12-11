@@ -8,29 +8,36 @@ package org.rust.lang.core.dfa
 import com.intellij.util.ThreeState
 
 data class DfaCondition(val threeState: ThreeState, val trueState: DfaMemoryState = DfaMemoryState.EMPTY, val falseState: DfaMemoryState = DfaMemoryState.EMPTY) {
+    val sure: Boolean = threeState.sure
+
     fun or(other: DfaCondition): DfaCondition {
-        val threeState = this.threeState.or(other.threeState)
-        val trueState = this.trueState.unite(other.trueState)
-        val falseState = this.falseState.intersect(other.falseState)
-        return fromStates(threeState, trueState, falseState)
+        var trueState = this.trueState.unite(other.trueState)
+        var falseState = this.falseState.intersect(other.falseState)
+        val emptyKeys = falseState.emptyKeys
+
+        trueState = trueState.minusAll(emptyKeys)
+        falseState = falseState.minusAll(emptyKeys)
+        val threeState = if (falseState.empty) ThreeState.YES else this.threeState.or(other.threeState)
+        return DfaCondition(threeState, trueState, falseState)
     }
 
     fun and(other: DfaCondition): DfaCondition {
-        val threeState = this.threeState.and(other.threeState)
-        val trueState = this.trueState.intersect(other.trueState)
-        val falseState = this.falseState.unite(other.falseState)
-        return fromStates(threeState, trueState, falseState)
+        var trueState = this.trueState.intersect(other.trueState)
+        var falseState = this.falseState.unite(other.falseState)
+        val emptyKeys = trueState.emptyKeys
+
+        trueState = trueState.minusAll(emptyKeys)
+        falseState = falseState.minusAll(emptyKeys)
+        val threeState = if (trueState.empty) ThreeState.NO else this.threeState.and(other.threeState)
+        return DfaCondition(threeState, trueState, falseState)
     }
 
     companion object {
         val UNSURE = DfaCondition(ThreeState.UNSURE)
-        fun fromStates(threeState: ThreeState, trueState: DfaMemoryState, falseState: DfaMemoryState): DfaCondition = DfaCondition(when {
-            trueState.hasEmpty -> ThreeState.NO
-            falseState.hasEmpty -> ThreeState.YES
-            else -> threeState
-        }, trueState, falseState)
     }
 }
+
+val ThreeState.sure: Boolean get() = this != ThreeState.UNSURE
 
 fun ThreeState.and(rhs: ThreeState): ThreeState = when {
     this == ThreeState.NO || rhs == ThreeState.NO -> ThreeState.NO
