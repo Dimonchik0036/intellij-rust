@@ -167,23 +167,19 @@ class DataFlowRunner(val function: RsFunction) {
         val state = getStateWithCheck(node.index)
         val (trueBranch, falseBranch) = node.firstControlFlowSplit ?: error("Couldn't find control flow split")
         val value = tryEvaluateExpr(expr, state)
-        val trueState = state.intersect(value.trueState)
-        val falseState = state.intersect(value.falseState)
 
         when (value.threeState) {
             ThreeState.YES -> {
                 visitorState.addNode(trueBranch)
-                mergeState(trueState, trueBranch)
-                mergeState(falseState, ifNode)
+                mergeState(state, trueBranch)
             }
             ThreeState.NO -> {
                 visitorState.addNode(falseBranch)
-                mergeState(falseState, falseBranch)
-                mergeState(trueState, ifNode)
+                mergeState(state, falseBranch)
             }
             ThreeState.UNSURE -> {
-                visitBranch(trueBranch, trueState, visitorState, ifNode.index + 1)
-                visitBranch(falseBranch, falseState, visitorState, ifNode.index + 1)
+                visitBranch(trueBranch, state.intersect(value.trueState), visitorState, ifNode.index + 1)
+                visitBranch(falseBranch, state.intersect(value.falseState), visitorState, ifNode.index + 1)
                 updateNextState(ifNode, visitorState)
             }
         }

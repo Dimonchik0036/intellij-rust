@@ -184,6 +184,21 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
        }
     """)
 
+    fun `test apply condition 3`() = checkWithExpandValues("""
+       fn test(input/*{-2147483648..2147483647}*/: i32) {
+            let x/*{42}*/ = 42;
+            let a/*{-2147483648..40, 61..2147483647}*/: i32;
+            if input > 50 {
+                a = input + 10;
+                if <warning descr="Condition 'a < 60' is always 'false'">a < 60</warning> {
+
+                }
+            } else {
+                a = input - 10;
+            }
+        }
+    """)
+
     private fun checkWithExpandValues(@Language("Rust") text: String) {
         checkByText(text)
         checkVariables()
