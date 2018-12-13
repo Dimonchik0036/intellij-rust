@@ -248,7 +248,7 @@ class DataFlowRunner(val function: RsFunction) {
         val leftResult = tryEvaluateExpr(left, state)
         return when (op) {
             LogicOp.OR -> if (leftResult.threeState == ThreeState.YES) leftResult else leftResult.or(tryEvaluateExpr(right, state))
-            LogicOp.AND -> if (leftResult.threeState == ThreeState.NO) leftResult else leftResult.and(tryEvaluateExpr(right, state))
+            LogicOp.AND -> if (leftResult.threeState == ThreeState.NO) leftResult else leftResult.and(tryEvaluateExpr(right, state.intersect(leftResult.trueState)))
         }
     }
 
@@ -257,8 +257,8 @@ class DataFlowRunner(val function: RsFunction) {
         op !is EqualityOp -> null
         leftValue is DfaUnknownValue && rightValue is DfaUnknownValue -> if (equalVariable(leftExpr, rightExpr)) DfaCondition(ThreeState.fromBoolean(op is EqualityOp.EQ)) else DfaCondition.UNSURE
         leftValue is DfaConstValue && rightValue is DfaConstValue -> DfaCondition(ThreeState.fromBoolean(if (op is EqualityOp.EQ) leftValue == rightValue else leftValue != rightValue))
-        leftValue is DfaConstValue && rightValue is DfaUnknownValue -> valueFromConstantAndUnknown(leftValue, op, leftExpr, rightExpr)
-        leftValue is DfaUnknownValue && rightValue is DfaConstValue -> valueFromConstantAndUnknown(rightValue, op, rightExpr, leftExpr)
+        leftValue is DfaConstValue && rightValue is DfaUnknownValue -> valueFromConstantAndUnknown(leftValue, op, rightExpr)
+        leftValue is DfaUnknownValue && rightValue is DfaConstValue -> valueFromConstantAndUnknown(rightValue, op, leftExpr)
         else -> null
     }
 
@@ -268,22 +268,18 @@ class DataFlowRunner(val function: RsFunction) {
         return leftVariable == rightVariable
     }
 
-    private fun valueFromConstantAndUnknown(constValue: DfaConstValue, op: EqualityOp, constExpr: RsExpr, otherExpr: RsExpr): DfaCondition? {
+    private fun valueFromConstantAndUnknown(constValue: DfaConstValue, op: EqualityOp, otherExpr: RsExpr): DfaCondition? {
         val boolValue = constValue.value as? Boolean ?: return null
-        val constVariable = constExpr.toVariable()
         val otherVariable = otherExpr.toVariable()
 
         val constValue = valueFactory.createBoolValue(boolValue)
         val resultValue = constValue.let { if (op is EqualityOp.EQ) it else it.negated }
-        val trueState = createMemoryState()
-            .uniteValue(constVariable, constValue)
-            .uniteValue(otherVariable, resultValue)
-
-        val falseState = createMemoryState()
-            .uniteValue(constVariable, constValue)
-            .uniteValue(otherVariable, resultValue.negated)
+        val trueState = createMemoryState().uniteValue(otherVariable, resultValue)
+        val falseState = createMemoryState().uniteValue(otherVariable, resultValue.negated)
         return DfaCondition(ThreeState.UNSURE, trueState, falseState)
     }
+
+    private fun DfaMemoryState.uniteRangeIfNotEmpty(variable: Variable?, range: LongRangeSet): DfaMemoryState = if (!range.isEmpty) uniteValue(variable, valueFactory.createRange(range)) else this
 
     private fun tryEvaluateBinExprWithRange(op: BoolOp, expr: RsBinaryExpr, state: DfaMemoryState): DfaCondition {
         val leftValue = valueFromExpr(expr.left, state)
@@ -296,15 +292,17 @@ class DataFlowRunner(val function: RsFunction) {
         val leftRange = LongRangeSet.fromDfaValue(leftValue) ?: return DfaCondition.UNSURE
         val rightRange = LongRangeSet.fromDfaValue(rightValue) ?: return DfaCondition.UNSURE
 
+        val leftVariable = expr.left.toVariable()
+        val rightVariable = expr.right?.toVariable()
         val (leftTrueResult, rightTrueResult) = leftRange.compare(op, rightRange)
         val trueState = createMemoryState()
-            .uniteValue(expr.left.toVariable(), valueFactory.createRange(leftTrueResult))
-            .uniteValue(expr.right?.toVariable(), valueFactory.createRange(rightTrueResult))
+            .uniteRangeIfNotEmpty(leftVariable, leftTrueResult)
+            .uniteRangeIfNotEmpty(rightVariable, rightTrueResult)
 
         val (leftFalseResult, rightFalseResult) = leftRange.compare(op.not, rightRange)
         val falseState = createMemoryState()
-            .uniteValue(expr.left.toVariable(), valueFactory.createRange(leftFalseResult))
-            .uniteValue(expr.right?.toVariable(), valueFactory.createRange(rightFalseResult))
+            .uniteRangeIfNotEmpty(leftVariable, leftFalseResult)
+            .uniteRangeIfNotEmpty(rightVariable, rightFalseResult)
 
         return when {
             leftTrueResult.isEmpty && rightTrueResult.isEmpty -> DfaCondition(ThreeState.NO, trueState = trueState, falseState = falseState)

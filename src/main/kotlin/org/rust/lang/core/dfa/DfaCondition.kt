@@ -11,25 +11,15 @@ data class DfaCondition(val threeState: ThreeState, val trueState: DfaMemoryStat
     val sure: Boolean = threeState.sure
 
     fun or(other: DfaCondition): DfaCondition {
-        var trueState = this.trueState.unite(other.trueState)
-        var falseState = this.falseState.intersect(other.falseState)
-        val emptyKeys = falseState.emptyKeys
-
-        trueState = trueState.minusAll(emptyKeys)
-        falseState = falseState.minusAll(emptyKeys)
-        val threeState = if (emptyKeys.isNotEmpty() && falseState.empty) ThreeState.YES else this.threeState.or(other.threeState)
-        return DfaCondition(threeState, trueState, falseState)
+        val falseState = this.falseState.intersect(other.falseState)
+        return if (falseState.hasEmpty) DfaCondition(ThreeState.YES, DfaMemoryState.EMPTY, DfaMemoryState.EMPTY)
+        else DfaCondition(this.threeState.or(other.threeState), DfaMemoryState.EMPTY, falseState)
     }
 
     fun and(other: DfaCondition): DfaCondition {
-        var trueState = this.trueState.intersect(other.trueState)
-        var falseState = this.falseState.unite(other.falseState)
-        val emptyKeys = trueState.emptyKeys
-
-        trueState = trueState.minusAll(emptyKeys)
-        falseState = falseState.minusAll(emptyKeys)
-        val threeState = if (emptyKeys.isNotEmpty() && trueState.empty) ThreeState.NO else this.threeState.and(other.threeState)
-        return DfaCondition(threeState, trueState, falseState)
+        val trueState = this.trueState.intersect(other.trueState)
+        return if (trueState.hasEmpty) DfaCondition(ThreeState.NO, DfaMemoryState.EMPTY, DfaMemoryState.EMPTY)
+        else DfaCondition(this.threeState.and(other.threeState), trueState, DfaMemoryState.EMPTY)
     }
 
     companion object {

@@ -157,6 +157,33 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
        }
     """)
 
+    fun `test apply condition 1`() = checkWithExpandValues("""
+       fn foo(b/*{-128..127}*/: i8) {
+            let x/*{42}*/: i8 = 42i8;
+            let a/*{37, 47}*/: i8;
+            if b > 10i8 && b != x {
+                a = x + 5i8;
+                let b/*{11..41, 43..127}*/ = b;
+            } else {
+                a = x - 5i8;
+                let b/*{-128..127}*/ = b;
+            }
+       }
+    """)
+
+    fun `test apply condition 2`() = checkWithExpandValues("""
+       fn foo(a/*{?}*/: bool) {
+            let x/*{true}*/ = true;
+            if a != x {
+                let c/*{true}*/ = x;
+                let d/*{false}*/ = a;
+            } else {
+                let c/*{true}*/ = x;
+                let d/*{true}*/ = a;
+            }
+       }
+    """)
+
     private fun checkWithExpandValues(@Language("Rust") text: String) {
         checkByText(text)
         checkVariables()
