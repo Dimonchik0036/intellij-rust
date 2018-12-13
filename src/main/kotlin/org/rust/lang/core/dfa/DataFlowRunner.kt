@@ -169,14 +169,8 @@ class DataFlowRunner(val function: RsFunction) {
         val value = tryEvaluateExpr(expr, state)
 
         when (value.threeState) {
-            ThreeState.YES -> {
-                visitorState.addNode(trueBranch)
-                mergeState(state, trueBranch)
-            }
-            ThreeState.NO -> {
-                visitorState.addNode(falseBranch)
-                mergeState(state, falseBranch)
-            }
+            ThreeState.YES -> updateNextState(node, visitorState, trueBranch)
+            ThreeState.NO -> updateNextState(node, visitorState, falseBranch)
             ThreeState.UNSURE -> {
                 visitBranch(trueBranch, state.intersect(value.trueState), visitorState, ifNode.index + 1)
                 visitBranch(falseBranch, state.intersect(value.falseState), visitorState, ifNode.index + 1)
