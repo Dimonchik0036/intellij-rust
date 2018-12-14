@@ -222,6 +222,39 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
         }
     """)
 
+    fun `test with unary operator`() = checkWithExpandValues("""
+       fn test(input/*{-2147483648..2147483647}*/: i32) {
+            if !(input == 42 || input > 50) && input >= 0 {
+                let a/*{0..41, 43..50}*/ = input;
+            } else {
+                let a/*{-2147483648..2147483647}*/ = input;
+            }
+            let a/*{-2147483648..2147483647}*/ = input;
+        }
+    """)
+
+    fun `test with unary operator always false`() = checkWithExpandValues("""
+       fn test(input/*{-2147483648..2147483647}*/: i32) {
+            if <warning descr="Condition '!(input != 42 || input != 50)' is always 'false'">!(input != 42 || input != 50)</warning> {
+                let a = input;
+            } else {
+                let a/*{-2147483648..2147483647}*/ = input;
+            }
+            let a/*{-2147483648..2147483647}*/ = input;
+        }
+    """)
+
+    fun `test with unary operator always true`() = checkWithExpandValues("""
+       fn test(input/*{-2147483648..2147483647}*/: i32) {
+            if <warning descr="Condition '!(input == 42 && input == 50)' is always 'true'">!(input == 42 && input == 50)</warning> {
+                let a/*{-2147483648..2147483647}*/ = input;
+            } else {
+                let a = input;
+            }
+            let a/*{-2147483648..2147483647}*/ = input;
+        }
+    """)
+
     fun `test simple match`() = checkWithExpandValues("""
        fn test(input/*{-2147483648..2147483647}*/: i32) {
             let a/*{-10, 1, 50}*/: i32;
