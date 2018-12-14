@@ -12,6 +12,7 @@ import org.rust.lang.core.dfa.DataFlowRunner
 import org.rust.lang.core.dfa.DfaMemoryState
 import org.rust.lang.core.dfa.RunnerResult
 import org.rust.lang.core.psi.*
+import org.rust.lang.core.types.dataFlowAnalysisResult
 import org.rust.lang.core.types.ty.TyBool
 import org.rust.lang.core.types.ty.TyInteger
 import org.rust.lang.core.types.type
@@ -24,8 +25,7 @@ class RsConstantConditionInspection : RsLocalInspectionTool() {
 //                val block = o.block ?: return
 //                val cfg = buildFor(block)
 //                println(cfg.createDotDescription())
-                val runner = DataFlowRunner(o)
-                val result = runner.analyze()
+                val (result, runner) = o.dataFlowAnalysisResult
                 when (result) {
                     RunnerResult.OK -> createDescription(holder, runner)
                     else -> holder.registerProblem(o, "Couldn't analyze function $result")
@@ -48,6 +48,7 @@ class RsConstantConditionInspection : RsLocalInspectionTool() {
 }
 
 private fun createDescription(holder: ProblemsHolder, runner: DataFlowRunner) {
+    // TODO: Remove debug functions and move constantConditionalExpression to cache
     val (trueSet, falseSet) = runner.constantConditionalExpression
     trueSet.forEach { registerConstantBoolean(holder, it, true) }
     falseSet.forEach { registerConstantBoolean(holder, it, false) }

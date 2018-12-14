@@ -28,7 +28,8 @@ class DataFlowRunner(val function: RsFunction) {
     //    var unvisitedElements: Set<RsElement> = emptySet()
 //        private set
     //for debug
-    var resultState: DfaMemoryState? = null
+    var resultState: DfaMemoryState = createMemoryState()
+        private set
 
     init {
         initFunctionParameters()
@@ -55,15 +56,16 @@ class DataFlowRunner(val function: RsFunction) {
 
     private fun createMemoryState(): DfaMemoryState = DfaMemoryState.EMPTY
 
-    fun analyze(): RunnerResult {
-        try {
-            val visitor = NodeVisitorState(function.block ?: return RunnerResult.NOT_APPLICABLE)
+    fun analyze(): RunnerResult = try {
+        val block = function.block
+        if (block != null) {
+            val visitor = NodeVisitorState(block)
             lineVisit(visitor)
 //            unvisitedElements = visitor.unvisitedElements.filter { it !is RsBlock }.toSet()
-            return RunnerResult.OK
-        } catch (e: Exception) {
-            return RunnerResult.NOT_APPLICABLE
         }
+        RunnerResult.OK
+    } catch (e: Exception) {
+        RunnerResult.NOT_APPLICABLE
     }
 
     private fun initFunctionParameters() {
@@ -104,6 +106,7 @@ class DataFlowRunner(val function: RsFunction) {
     private fun getStateWithCheck(index: Int): DfaMemoryState = states[index] ?: error("Index $index")
     private fun setState(index: Int, state: DfaMemoryState) {
         states.put(index, state)
+        resultState = state
     }
 
     private fun mergeStates(nodeFrom: CFGNode, nodeTo: CFGNode) {
@@ -112,13 +115,9 @@ class DataFlowRunner(val function: RsFunction) {
     }
 
     private fun mergeState(state: DfaMemoryState, nodeTo: CFGNode) {
-        val nextState = states[nodeTo.index]
-        if (nextState != null) {
-            setState(nodeTo.index, state.unite(nextState))
-        } else {
-            setState(nodeTo.index, state)
-        }
-        resultState = states[nodeTo.index]
+        val stateFromNextNode = states[nodeTo.index]
+        val nextState = if (stateFromNextNode != null) state.unite(stateFromNextNode) else state
+        setState(nodeTo.index, nextState)
     }
 
     private fun visitAstNode(element: RsElement, node: CFGNode, visitorState: NodeVisitorState) = when (element) {
@@ -491,3 +490,5 @@ private fun RsExpr.toVariable(): Variable? {
 }
 
 private operator fun RsElement.contains(other: RsElement): Boolean = other.textRange in this.textRange
+
+data class DataFlowAnalysisResult(val result: RunnerResult, val runner: DataFlowRunner)
