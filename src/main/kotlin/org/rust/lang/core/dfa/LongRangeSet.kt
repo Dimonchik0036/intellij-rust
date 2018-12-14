@@ -233,14 +233,15 @@ sealed class LongRangeSet(val type: TyInteger) {
         return plus(-other)
     }
 
-    //TODO make abstract
+    //TODO make abstract ?
     operator fun times(other: LongRangeSet): LongRangeSet {
         if (isUnknown || other.isUnknown) return unknown()
         if (isEmpty || other.isEmpty) return this
-        val left = splitAtZero(asRanges)
-        val right = splitAtZero(longArrayOf(other.min, other.max))
+        if (this is Point && value == 0L || other is Point && other.value == 0L) return point(0)
+        val left = without(0).asRanges
+        val right = other.without(0).asRanges
 
-        var result = empty()
+        var result = if (0 in this || 0 in other) point(0) else empty()
         for (leftIndex in left.indices step 2) {
             for (rightIndex in right.indices step 2) {
                 val part = times(left[leftIndex], left[leftIndex + 1], right[rightIndex], right[rightIndex + 1])
@@ -292,6 +293,8 @@ sealed class LongRangeSet(val type: TyInteger) {
     abstract val stream: LongStream
 
     abstract val asRanges: LongArray
+
+    fun to(type : Ty?) : LongRangeSet? = fromType(type)?.intersect(this)
 
     protected open val fixRange: LongRangeSet get() = type.toRange().intersect(this)
 

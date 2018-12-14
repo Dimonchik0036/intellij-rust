@@ -33,8 +33,8 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
 
     fun `test declaration from overflow expression`() = checkWithExpandValues("""
         fn main() {
-            let x/*{200}*/: u8 = 200;
-            let y/*{!}*/: u8 = x * 2u8;
+            let x/*{200}*/ = 200u8;
+            let y/*{!}*/= x * 2u8;
         }
     """)
 
@@ -199,6 +199,40 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
         }
     """)
 
+    fun `test apply condition 4`() = checkWithExpandValues("""
+       fn test(input/*{-2147483648..2147483647}*/: i32) {
+            if input >= 50 {
+                if input < 100 {
+                    let a1/*{60..109}*/ = input + 10;
+                    let b1/*{40..89}*/ = input - 10;
+                    let c1/*{500..990}*/ = input * 10;
+                    let d1/*{0..9}*/ = input % 10;
+                } else {
+                    let a2/*{110..2147483647}*/ = input + 10;
+                    let b2/*{90..2147483637}*/ = input - 10;
+                    let c2/*{1000..2147483647}*/ = input * 10;
+                    let d2/*{0..9}*/ = input % 10;
+                }
+            } else {
+                    let a3/*{-2147483638..59}*/ = input + 10;
+                    let b3/*{-2147483648..39}*/ = input - 10;
+                    let c3/*{-2147483648..-10, 0, 10..490}*/ = input * 10;
+                    let d3/*{-9..9}*/ = input % 10;
+            }
+        }
+    """)
+
+    fun `test simple match`() = checkWithExpandValues("""
+       fn test(input/*{-2147483648..2147483647}*/: i32) {
+            let a/*{-10, 1, 50}*/: i32;
+            match input {
+                1 => { a = 1 }
+                5 => { a = -10 }
+                _ => { a = 50 }
+            }
+        }
+    """)
+
     private fun checkWithExpandValues(@Language("Rust") text: String) {
         checkByText(text)
         checkVariables()
@@ -212,7 +246,7 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
                 val runner = DataFlowRunner(function)
                 val result = runner.analyze()
                 if (result != RunnerResult.OK) error("Couldn't analyze `${function.identifier.text}`")
-                val state = runner.resultState ?: error("Couldn't find state for `${function.identifier.text}`")
+                val state = runner.resultState
                 function.descendantsOfType<RsPatBinding>().asSequence()
                     .filter { it in state }
                     .map {
