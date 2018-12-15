@@ -439,7 +439,6 @@ object Unknown : LongRangeSet(TyInteger.I64) {
 
 class Point(val value: Long, type: TyInteger) : LongRangeSet(type) {
     override fun subtract(other: LongRangeSet): LongRangeSet = when {
-        other.isUnknown -> other
         this in other -> empty()
         else -> this
     }
@@ -526,9 +525,8 @@ class Range(val from: Long, val to: Long, type: TyInteger) : LongRangeSet(type) 
     }
 
     override fun subtract(other: LongRangeSet): LongRangeSet {
+        if (other === this || this in other) return empty()
         if (other.isEmpty) return this
-        if (other.isUnknown) return other
-        if (other === this) return empty()
         if (other is Point) {
             val value = other.value
             return when {
@@ -772,9 +770,8 @@ class RangeSet(val ranges: LongArray, type: TyInteger) : LongRangeSet(type) {
     }
 
     override fun subtract(other: LongRangeSet): LongRangeSet {
-        if (other.isUnknown) return other
         if (other.isEmpty) return this
-        if (other === this) return empty()
+        if (other.isUnknown || other === this) return empty()
         val result = LongArray(ranges.size + other.asRanges.size)
         var index = 0
         for (i in ranges.indices step 2) {

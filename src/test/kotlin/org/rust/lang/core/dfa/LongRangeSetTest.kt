@@ -148,6 +148,112 @@ class LongRangeSetTest : RsTestBase() {
         )
     }
 
+    fun `test subtract empty`() {
+        val empty = empty()
+        checkMethodWithBooleanResult(
+            listOf(
+                empty(),
+                unknown(),
+                point(42),
+                range(-5, 50),
+                setFromString("-100..0, 2..50")
+            ) to { it -> empty == empty.subtract(it) }
+        )
+    }
+
+    fun `test subtract unknown`() {
+        val unknown = unknown()
+        checkMethodWithBooleanResult(
+            listOf(
+                empty(),
+                unknown(),
+                point(42),
+                range(-5, 50),
+                setFromString("-100..0, 2..50")
+            ) to { it -> unknown == unknown.subtract(it) }
+        )
+    }
+
+    fun `test subtract point`() {
+        val point = point(42)
+        checkMethodWithBooleanResult(
+            listOf(
+                empty(),
+                point(43),
+                range(-5, 41),
+                range(43, 55),
+                setFromString("-100..0, 2..41, 43..66")
+            ) to { it -> point == point.subtract(it) },
+            listOf(
+                unknown(),
+                point(42),
+                range(4, 43),
+                setFromString("2..40, 42, 44..66"),
+                setFromString("-50..100, 777")
+            ) to { it -> empty() == point.subtract(it) }
+        )
+    }
+
+    fun `test subtract range`() {
+        val range = range(42, 50)
+        checkMethodWithBooleanResult(
+            listOf(
+                empty(),
+                point(41),
+                range(-5, 41),
+                range(51, 100),
+                setFromString("-100..0, 2..41, 51..60")
+            ) to { it -> range == range.subtract(it) },
+            listOf(
+                unknown(),
+                range(4, 50),
+                range(-4, 100),
+                setFromString("40, 42..66"),
+                setFromString("-50..100, 777")
+            ) to { it -> empty() == range.subtract(it) }
+        )
+
+        checkSet("{43..50}", range.subtract(point(42)))
+        checkSet("{42..49}", range.subtract(point(50)))
+        checkSet("{42, 43, 45..50}", range.subtract(point(44)))
+
+        checkSet("{45..50}", range.subtract(range(0, 44)))
+        checkSet("{42..46}", range.subtract(range(47, 50)))
+        checkSet("{42..44, 47..50}", range.subtract(range(45, 46)))
+
+        checkSet("{44, 46}", range.subtract(setFromString("42..43, 45, 47..50")))
+    }
+
+    fun `test subtract set`() {
+        val set = setFromString("-2..60, 77, 555")
+        checkMethodWithBooleanResult(
+            listOf(
+                empty(),
+                point(61),
+                range(61, 76),
+                range(556, 1000),
+                setFromString("-100..-3, 61..66")
+            ) to { it -> set == set.subtract(it) },
+            listOf(
+                unknown(),
+                range(-2, 555),
+                range(-40, 1000),
+                setFromString("-2..60, 77, 555"),
+                setFromString("-50..60, 70..600")
+            ) to { it -> empty() == set.subtract(it) }
+        )
+
+        checkSet("{-2..41, 43..60, 77, 555}", set.subtract(point(42)))
+        checkSet("{-2..49, 51..60, 77, 555}", set.subtract(point(50)))
+        checkSet("{-2..60, 555}", set.subtract(point(77)))
+
+        checkSet("{77, 555}", set.subtract(range(-50, 61)))
+        checkSet("{-2..54}", set.subtract(range(55, 555)))
+        checkSet("{-2, -1, 4..60, 77, 555}", set.subtract(range(0, 3)))
+
+        checkSet("{-2..2, 4..13, 19..60, 77}", set.subtract(setFromString("3, 14..18, 555")))
+    }
+
     fun `test diff`() {
         assertEquals(empty(), empty().subtract(point(10)))
         assertEquals(point(10), point(10).subtract(empty()))
@@ -455,6 +561,7 @@ class LongRangeSetTest : RsTestBase() {
     fun `test check checkHasAllTypes function`() {
         checkHasAllTypes(listOf(empty(), unknown(), point(42), range(5, 55), setFromString("0, 2, 4")))
         assertFails { checkHasAllTypes(emptyList()) }
+        assertFails { checkHasAllTypes(listOf(empty(), point(42))) }
     }
 
     private fun checkSet(expected: String, actual: LongRangeSet?) = assertEquals(expected, actual.toString())
