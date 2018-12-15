@@ -22,7 +22,6 @@ import java.util.*
 import kotlin.collections.set
 import kotlin.streams.asSequence
 import kotlin.test.assertFails
-import kotlin.test.assertNotEquals
 
 class LongRangeSetTest : RsTestBase() {
     fun `test long range set from string`() {
@@ -70,23 +69,83 @@ class LongRangeSetTest : RsTestBase() {
         checkSet("{0..9223372036854775807}", fromType(TyInteger.USize))
     }
 
+    fun `test equals empty`() {
+        val empty = empty()
+        checkMethodWithBooleanResult(
+            listOf(empty()) to { it -> empty == it && it == empty },
+            listOf(
+                unknown(),
+                point(42),
+                range(-5, 50),
+                setFromString("-100..0, 2..50")
+            ) to { it -> empty != it && it != empty }
+        )
+    }
 
-    fun `test equals`() {
-        TyInteger.VALUES.forEach {
-            assertEquals(empty(), empty())
+    fun `test equals unknown`() {
+        val unknown = unknown()
+        checkMethodWithBooleanResult(
+            listOf(unknown()) to { it -> unknown == it && it == unknown },
+            listOf(
+                empty(),
+                point(42),
+                range(-5, 50),
+                setFromString("-100..0, 2..50")
+            ) to { it -> unknown != it && it != unknown }
+        )
+    }
 
-            assertEquals(point(10, it), point(10, it))
-            assertNotEquals(point(10, it), point(11, it))
+    fun `test equals point`() {
+        val point = point(42)
+        checkMethodWithBooleanResult(
+            listOf(
+                point(42),
+                range(42, 42)
+            ) to { it -> point == it && it == point },
+            listOf(
+                empty(),
+                unknown(),
+                point(43),
+                range(-5, 50),
+                setFromString("-100..0, 2..50")
+            ) to { it -> point != it && it != point }
+        )
+    }
 
-            assertEquals(point(10, it), range(10, 10, it))
-            assertNotEquals(point(10, it), range(10, 11, it))
+    fun `test equals range`() {
+        val range = range(-5, 15)
+        checkMethodWithBooleanResult(
+            listOf(
+                range(-5, 15)
+            ) to { it -> range == it && it == range },
+            listOf(
+                empty(),
+                unknown(),
+                point(3),
+                range(-5, 50),
+                range(-6, 15),
+                range(-5, 16),
+                setFromString("-100..0, 3, 5..50")
+            ) to { it -> range != it && it != range }
+        )
+    }
 
-            assertEquals(range(10, 11, it), range(10, 11, it))
-            assertNotEquals(range(10, 11, it), range(10, 12, it))
-
-            assertEquals(setFromString("0..10, 12..15", it), setFromString("0..10, 12..15", it))
-            assertNotEquals(setFromString("0..10, 12..15", it), setFromString("0..9, 12..15", it))
-        }
+    fun `test equals set`() {
+        val set = setFromString("-5..1, 10, 30..44")
+        checkMethodWithBooleanResult(
+            listOf(
+                setFromString("-5..1, 10, 30..44")
+            ) to { it -> set == it && it == set },
+            listOf(
+                empty(),
+                unknown(),
+                point(10),
+                point(100),
+                range(-5, 1),
+                range(9, 11),
+                setFromString("-5..1, 30..44")
+            ) to { it -> set != it && it != set }
+        )
     }
 
     fun `test diff`() {
@@ -309,98 +368,115 @@ class LongRangeSetTest : RsTestBase() {
         checkSet("{-1000..-701, -499..-101, 301..599, 801..900}", -set)
     }
 
-    private fun checkPredicate(sets: Collection<LongRangeSet>, condition: (LongRangeSet) -> Boolean): Unit = sets.filterNot(condition).let {
+    fun `test contains point`() {
+        val point = point(42)
+        checkMethodWithBooleanResult(
+            listOf(
+                point(42),
+                range(0, 100),
+                range(0, 42),
+                range(42, 100),
+                setFromString("0, 11, 42"),
+                setFromString("0..42, 55..10000"),
+                setFromString("42..44, 55..10000"),
+                unknown()
+            ) to { it -> point in it },
+            listOf(
+                empty(),
+                point(666),
+                range(0, 41),
+                setFromString("0, 11, 44"),
+                setFromString("0..41, 43..10000")
+            ) to { it -> point !in it }
+        )
+    }
+
+    fun `test contains range`() {
+        val range = range(-5, 15)
+        checkMethodWithBooleanResult(
+            listOf(
+                range(-5, 15),
+                range(-100, 100500),
+                setFromString("-70..55, 99"),
+                unknown()
+            ) to { it -> range in it },
+            listOf(
+                point(10),
+                range(-4, 15),
+                setFromString("-4..15, 20"),
+                point(5),
+                empty()
+            ) to { it -> range !in it }
+        )
+    }
+
+    fun `test contains set`() {
+        val set = setFromString("-5..10, 20..50, 70..120")
+        checkMethodWithBooleanResult(
+            listOf(
+                range(-5, 120),
+                setFromString("-5..10, 20..50, 70..120, 200"),
+                setFromString("-50..50, 66..200"),
+                unknown()
+            ) to { it -> set in it },
+            listOf(
+                point(42),
+                range(0, 100),
+                empty()
+            ) to { it -> set !in it }
+        )
+    }
+
+    fun `test contains empty`() {
+        val empty = empty()
+        checkMethodWithBooleanResult(
+            listOf(
+                point(42),
+                range(0, 100),
+                setFromString("0, 11, 42"),
+                empty(),
+                unknown()
+            ) to { it -> empty in it }
+        )
+    }
+
+    fun `test contains unknown`() {
+        val unknown = unknown()
+        checkMethodWithBooleanResult(
+            listOf(
+                point(42),
+                range(0, 100),
+                setFromString("0, 11, 42"),
+                unknown()) to { it -> unknown in it },
+            listOf(empty()) to { it -> unknown !in it }
+        )
+    }
+
+    private fun checkSet(expected: String, actual: LongRangeSet?) = assertEquals(expected, actual.toString())
+
+    private fun checkPredicate(collection: Collection<LongRangeSet>, predicate: (LongRangeSet) -> Boolean): Unit = collection.filterNot(predicate).let {
         if (it.isNotEmpty()) error("False predicate in ${it.joinToString(", ")}")
     }
 
-    private inline fun <reified T> checkType(vararg sets: Collection<LongRangeSet>) {
-        if (!sets.any { it.any { set -> set is T } }) error("Couldn't find ${T::class}")
+    private inline fun <reified T> checkType(collection: Collection<LongRangeSet>) {
+        if (!collection.any { set -> set is T }) error("Couldn't find ${T::class}")
     }
 
-    private fun checkHasAllTypes(vararg sets: Collection<LongRangeSet>) {
-        checkType<Empty>(*sets)
-        checkType<Unknown>(*sets)
-        checkType<Point>(*sets)
-        checkType<Range>(*sets)
-        checkType<RangeSet>(*sets)
+    private fun checkHasAllTypes(collection: Collection<LongRangeSet>) {
+        checkType<Empty>(collection)
+        checkType<Unknown>(collection)
+        checkType<Point>(collection)
+        checkType<Range>(collection)
+        checkType<RangeSet>(collection)
     }
 
-    private fun checkContains(range: LongRangeSet, trueCollection: Collection<LongRangeSet> = emptyList(), falseCollection: Collection<LongRangeSet> = emptyList()) {
-        checkHasAllTypes(trueCollection, falseCollection)
-        checkPredicate(trueCollection) { range in it }
-        checkPredicate(falseCollection) { range !in it }
+    private fun checkMethodWithBooleanResult(
+        vararg pairs: Pair<Collection<LongRangeSet>, (LongRangeSet) -> Boolean>) {
+        checkHasAllTypes(pairs.flatMap { it.first })
+        pairs.forEach {
+            checkPredicate(it.first, it.second)
+        }
     }
-
-    fun `test contains point`() = checkContains(
-        range = point(42),
-        trueCollection = listOf(
-            point(42),
-            range(0, 100),
-            range(0, 42),
-            range(42, 100),
-            setFromString("0, 11, 42"),
-            setFromString("0..42, 55..10000"),
-            setFromString("42..44, 55..10000"),
-            unknown()
-        ), falseCollection = listOf(
-        empty(),
-        point(666),
-        range(0, 41),
-        setFromString("0, 11, 44"),
-        setFromString("0..41, 43..10000")
-    ))
-
-    fun `test contains range`() = checkContains(
-        range = range(-5, 15),
-        trueCollection = listOf(
-            range(-5, 15),
-            range(-100, 100500),
-            setFromString("-70..55, 99"),
-            unknown()
-        ), falseCollection = listOf(
-        point(10),
-        range(-4, 15),
-        setFromString("-4..15, 20"),
-        point(5),
-        empty()
-    ))
-
-    fun `test contains set`() = checkContains(
-        range = setFromString("-5..10, 20..50, 70..120"),
-        trueCollection = listOf(
-            range(-5, 120),
-            setFromString("-5..10, 20..50, 70..120, 200"),
-            setFromString("-50..50, 66..200"),
-            unknown()
-        ), falseCollection = listOf(
-        point(42),
-        range(0, 100),
-        empty()
-    ))
-
-    fun `test contains empty`() = checkContains(
-        range = empty(),
-        trueCollection = listOf(
-            point(42),
-            range(0, 100),
-            setFromString("0, 11, 42"),
-            empty(),
-            unknown()
-        )
-    )
-
-    fun `test contains unknown`() = checkContains(
-        range = unknown(),
-        trueCollection = listOf(
-            point(42),
-            range(0, 100),
-            setFromString("0, 11, 42"),
-            unknown()
-        ), falseCollection = listOf(
-        empty()
-    ))
-
-    private fun checkSet(expected: String, actual: LongRangeSet?) = assertEquals(expected, actual.toString())
 //
 //    fun `test mod`() {
 //        assertEquals(empty(), empty().mod(all()))
