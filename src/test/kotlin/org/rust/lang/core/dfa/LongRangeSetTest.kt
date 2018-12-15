@@ -418,18 +418,35 @@ class LongRangeSetTest : RsTestBase() {
         )
     }
 
-    fun `test intersect`() {
-        checkSet("{0..100}", range(0, 100).intersect(range(0, 100)))
-        checkSet("{100}", range(0, 100).intersect(range(100, 200)))
-        assertTrue(range(0, 100).intersect(range(101, 200)).isEmpty)
-        assertTrue(point(100).intersect(point(200)).isEmpty)
-        assertFalse(point(100).intersect(range(99, 101)).isEmpty)
-
-        val rangeSet = range(-1000, 1000).subtract(range(100, 500)).subtract(range(-500, -100))
-        checkSet("{-1000..-501, -99..99, 501..1000}", rangeSet)
-        assertEquals(point(99), rangeSet.intersect(point(99)))
-        assertTrue(rangeSet.intersect(point(100)).isEmpty)
+    fun `test intersect empty`() {
+        val empty = empty()
+        checkMethodWithBooleanResult(
+            listOf(
+                empty(),
+                all(),
+                unknown(),
+                setFromString("5, 55..60"),
+                point(42)
+            ) to { it -> it.intersect(empty).isEmpty && empty.intersect(it).isEmpty }
+        )
     }
+
+    fun `test intersect unknown`() {
+        val unknown = unknown()
+        checkMethodWithBooleanResult(
+            listOf(
+                all(),
+                unknown(),
+                setFromString("5, 55..60"),
+                point(42)
+            ) to { it -> it.intersect(unknown).isUnknown && unknown.intersect(it).isUnknown },
+            listOf(
+                empty()
+            ) to { it -> it.intersect(unknown).isEmpty && unknown.intersect(it).isEmpty }
+        )
+    }
+
+    fun `test intersect set`() = checkSet("{-54, 60..63, 77}", setFromString("-55..-54, 59..66, 77").intersect(setFromString("-54, 60..63, 76..78")))
 
     fun `test intersect subtract randomized`() {
         val r = Random(1)

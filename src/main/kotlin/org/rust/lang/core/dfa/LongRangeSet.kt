@@ -404,7 +404,7 @@ sealed class Empty(val overflow: Boolean) : LongRangeSet(TyInteger.I64) {
 object Unknown : LongRangeSet(TyInteger.I64) {
     override fun subtract(other: LongRangeSet): LongRangeSet = this
 
-    override fun intersect(other: LongRangeSet): LongRangeSet = this
+    override fun intersect(other: LongRangeSet): LongRangeSet = if (other.isEmpty) other else this
 
     override fun unite(other: LongRangeSet): LongRangeSet = this
 
