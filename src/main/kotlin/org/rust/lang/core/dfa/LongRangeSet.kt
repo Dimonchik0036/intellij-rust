@@ -81,6 +81,7 @@ sealed class LongRangeSet(val type: TyInteger) {
         this in other -> other
         else -> {
             val range = allRange
+            // TODO optimize
             range.subtract(range.subtract(this).intersect(range.subtract(other)))
         }
     }
@@ -359,7 +360,7 @@ sealed class LongRangeSet(val type: TyInteger) {
     }
 }
 
-sealed class Empty(val overflow: Boolean) : LongRangeSet(TyInteger.I64) {
+sealed class Empty : LongRangeSet(TyInteger.I64) {
     override fun subtract(other: LongRangeSet): LongRangeSet = this
 
     override fun intersect(other: LongRangeSet): LongRangeSet = this
@@ -394,11 +395,11 @@ sealed class Empty(val overflow: Boolean) : LongRangeSet(TyInteger.I64) {
 
     override fun toString(): String = "{}"
 
-    object EmptyWithOverflow : Empty(true) {
+    object EmptyWithOverflow : Empty() {
         override fun toString(): String = "{!}"
     }
 
-    object EmptyWithoutOverflow : Empty(false)
+    object EmptyWithoutOverflow : Empty()
 }
 
 object Unknown : LongRangeSet(TyInteger.I64) {

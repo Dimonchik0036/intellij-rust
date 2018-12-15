@@ -566,6 +566,29 @@ class LongRangeSetTest : RsTestBase() {
         )
     }
 
+    fun `test contains long`() {
+        val number = 42L
+        checkMethodWithBooleanResult(
+            listOf(
+                point(42),
+                range(0, 100),
+                range(0, 42),
+                range(42, 100),
+                setFromString("0, 11, 42"),
+                setFromString("0..42, 55..10000"),
+                setFromString("42..44, 55..10000"),
+                unknown()
+            ) to { it -> number in it },
+            listOf(
+                empty(),
+                point(666),
+                range(0, 41),
+                setFromString("0, 11, 44"),
+                setFromString("0..41, 43..10000")
+            ) to { it -> number !in it }
+        )
+    }
+
     fun `test contains range`() {
         val range = range(-5, 15)
         checkMethodWithBooleanResult(
