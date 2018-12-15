@@ -452,6 +452,11 @@ class LongRangeSetTest : RsTestBase() {
         )
     }
 
+    fun `test check checkHasAllTypes function`() {
+        checkHasAllTypes(listOf(empty(), unknown(), point(42), range(5, 55), setFromString("0, 2, 4")))
+        assertFails { checkHasAllTypes(emptyList()) }
+    }
+
     private fun checkSet(expected: String, actual: LongRangeSet?) = assertEquals(expected, actual.toString())
 
     private fun checkPredicate(collection: Collection<LongRangeSet>, predicate: (LongRangeSet) -> Boolean): Unit = collection.filterNot(predicate).let {
