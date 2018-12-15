@@ -12,6 +12,7 @@ import org.rust.lang.core.dfa.LongRangeSet.Companion.fromConstant
 import org.rust.lang.core.dfa.LongRangeSet.Companion.point
 import org.rust.lang.core.dfa.LongRangeSet.Companion.range
 import org.rust.lang.core.dfa.LongRangeSet.Companion.unknown
+import org.rust.lang.core.psi.ext.BoolOp
 import org.rust.lang.core.psi.ext.ComparisonOp
 import org.rust.lang.core.psi.ext.EqualityOp
 import org.rust.lang.core.types.ty.Ty
@@ -20,6 +21,8 @@ import org.rust.lang.core.types.ty.TyInteger
 import org.rust.lang.core.types.ty.TyStr
 import java.util.*
 import kotlin.collections.set
+import kotlin.reflect.KClass
+import kotlin.reflect.full.isSubclassOf
 import kotlin.streams.asSequence
 import kotlin.test.assertFails
 
@@ -650,6 +653,73 @@ class LongRangeSetTest : RsTestBase() {
         )
     }
 
+    fun `test compare empty`() {
+        val empty = empty()
+        (ComparisonOp.values() + EqualityOp.EQ).forEach {
+            checkMethodWithBooleanResult(
+                listOf(
+                    point(42),
+                    range(0, 100),
+                    setFromString("0, 11, 42"),
+                    empty(),
+                    unknown()
+                ) to { other ->
+                    (empty.compare(it as BoolOp, other).toList() + other.compare(it, empty).toList()).all { set -> set.isEmpty }
+                }
+            )
+        }
+
+        checkMethodWithBooleanResult(
+            listOf(
+                point(42),
+                range(0, 100),
+                setFromString("0, 11, 42"),
+                empty(),
+                unknown()
+            ) to { other ->
+                val op = EqualityOp.EXCLEQ
+                val (leftEmpty, rightOther) = empty.compare(op, other)
+                val (leftOther, rightEmpty) = other.compare(op, empty)
+                leftEmpty.isEmpty && rightEmpty.isEmpty && leftOther == other && rightOther == other
+            }
+        )
+    }
+
+    fun `test compare unknown`() {
+        val unknown = unknown()
+        (ComparisonOp.values() + EqualityOp.EQ).forEach {
+            println(it)
+            checkMethodWithBooleanResult(
+                ignore = Empty::class,
+                pair = listOf(
+                    point(42),
+                    range(0, 100),
+                    setFromString("0, 11, 42"),
+                    unknown()
+                ) to { other ->
+                    (unknown.compare(it as BoolOp, other).toList() + other.compare(it, unknown).toList()).all { set -> set.isUnknown }
+                }
+            )
+        }
+
+        checkMethodWithBooleanResult(
+            ignore = listOf(Empty::class, Unknown::class),
+            pair = listOf(
+                point(42),
+                range(0, 100),
+                setFromString("0, 11, 42"),
+                empty()
+            ) to { other ->
+                val op = EqualityOp.EXCLEQ
+                val (leftUnknown, rightOther) = unknown.compare(op, other)
+                val (leftOther, rightUnknown) = other.compare(op, unknown)
+                leftUnknown.isUnknown && rightUnknown.isUnknown && leftOther.isEmpty && rightOther.isEmpty
+            }
+        )
+
+        assertTrue(unknown.compare(EqualityOp.EXCLEQ, unknown).toList().all { it.isUnknown })
+    }
+
     fun `test check checkHasAllTypes function`() {
         checkHasAllTypes(listOf(empty(), unknown(), point(42), range(5, 55), setFromString("0, 2, 4")))
         assertFails { checkHasAllTypes(emptyList()) }
@@ -662,25 +732,39 @@ class LongRangeSetTest : RsTestBase() {
         if (it.isNotEmpty()) error("False predicate in ${it.joinToString(", ")}")
     }
 
-    private inline fun <reified T> checkType(collection: Collection<LongRangeSet>) {
-        if (!collection.any { set -> set is T }) error("Couldn't find ${T::class}")
+    private fun checkType(collection: Collection<LongRangeSet>, type: KClass<out LongRangeSet>) {
+        if (!collection.any { set -> set::class.isSubclassOf(type) }) error("Couldn't find ${type.simpleName}")
     }
 
-    private fun checkHasAllTypes(collection: Collection<LongRangeSet>) {
-        checkType<Empty>(collection)
-        checkType<Unknown>(collection)
-        checkType<Point>(collection)
-        checkType<Range>(collection)
-        checkType<RangeSet>(collection)
+    private fun checkHasAllTypes(collection: Collection<LongRangeSet>, ignore: Collection<KClass<out LongRangeSet>> = emptyList()) {
+        listOf(Empty::class, Unknown::class, Point::class, Range::class, RangeSet::class)
+            .filter { it !in ignore }
+            .forEach { checkType(collection, it) }
     }
 
     private fun checkMethodWithBooleanResult(
         vararg pairs: Pair<Collection<LongRangeSet>, (LongRangeSet) -> Boolean>) {
-        checkHasAllTypes(pairs.flatMap { it.first })
+        checkMethodWithBooleanResult(ignore = emptyList(), pairs = pairs.toList())
+    }
+
+    private fun checkMethodWithBooleanResult(
+        ignore: Collection<KClass<out LongRangeSet>>,
+        pairs: Collection<Pair<Collection<LongRangeSet>, (LongRangeSet) -> Boolean>>) {
+        checkHasAllTypes(pairs.flatMap { it.first }, ignore)
         pairs.forEach {
             checkPredicate(it.first, it.second)
         }
     }
+
+    private fun checkMethodWithBooleanResult(
+        ignore: Collection<KClass<out LongRangeSet>>,
+        pair: Pair<Collection<LongRangeSet>, (LongRangeSet) -> Boolean>) =
+        checkMethodWithBooleanResult(ignore, listOf(pair))
+
+    private fun checkMethodWithBooleanResult(
+        ignore: KClass<out LongRangeSet>,
+        pair: Pair<Collection<LongRangeSet>, (LongRangeSet) -> Boolean>) =
+        checkMethodWithBooleanResult(listOf(ignore), listOf(pair))
 //
 //    fun `test mod`() {
 //        assertEquals(empty(), empty().mod(all()))
