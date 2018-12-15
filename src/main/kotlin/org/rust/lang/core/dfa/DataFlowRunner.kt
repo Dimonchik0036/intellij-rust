@@ -13,10 +13,7 @@ import org.rust.ide.utils.skipParenExprUp
 import org.rust.lang.core.cfg.CFGNode
 import org.rust.lang.core.cfg.CFGNodeData
 import org.rust.lang.core.cfg.ControlFlowGraph.Companion.buildFor
-import org.rust.lang.core.dfa.value.DfaConstValue
-import org.rust.lang.core.dfa.value.DfaUnknownValue
-import org.rust.lang.core.dfa.value.DfaValue
-import org.rust.lang.core.dfa.value.DfaValueFactory
+import org.rust.lang.core.dfa.value.*
 import org.rust.lang.core.psi.*
 import org.rust.lang.core.psi.ext.*
 import org.rust.lang.core.types.type
@@ -24,6 +21,7 @@ import org.rust.lang.core.types.type
 class DataFlowRunner(val function: RsFunction) {
     private val valueFactory: DfaValueFactory = DfaValueFactory()
     private val instructions = hashSetOf<BinOpInstruction>()
+    val overflowExpressions = hashSetOf<RsExpr>()
     private val states = TIntObjectHashMap<DfaMemoryState>()
     //    var unvisitedElements: Set<RsElement> = emptySet()
 //        private set
@@ -60,7 +58,7 @@ class DataFlowRunner(val function: RsFunction) {
         val block = function.block
         if (block != null) {
             val visitor = NodeVisitorState(block)
-            lineVisit(visitor)
+            visitBranch(visitor)
 //            unvisitedElements = visitor.unvisitedElements.filter { it !is RsBlock }.toSet()
         }
         RunnerResult.OK
@@ -83,7 +81,7 @@ class DataFlowRunner(val function: RsFunction) {
     /***
      * @param endIndex 1 is index of [org.rust.lang.core.cfg.CFGNodeData.Exit] node
      */
-    private fun lineVisit(visitorState: NodeVisitorState, endIndex: Int = 1) {
+    private fun visitBranch(visitorState: NodeVisitorState, endIndex: Int = 1) {
         while (true) {
             val node = visitorState.nextNode()
             if (node == null || node.index == endIndex) return
@@ -189,7 +187,7 @@ class DataFlowRunner(val function: RsFunction) {
     private fun visitBranch(node: CFGNode, state: DfaMemoryState, visitorState: NodeVisitorState, endIndex: Int) {
         setState(node.index, state)
         visitorState.addNode(node)
-        lineVisit(visitorState, endIndex)
+        visitBranch(visitorState, endIndex)
     }
 
     private fun tryEvaluateExpr(expr: RsExpr?, state: DfaMemoryState): DfaCondition {
@@ -244,14 +242,14 @@ class DataFlowRunner(val function: RsFunction) {
     private fun tryEvaluateConst(op: BoolOp, leftExpr: RsExpr?, leftValue: DfaValue, rightExpr: RsExpr?, rightValue: DfaValue): DfaCondition? = when {
         leftExpr == null || rightExpr == null -> DfaCondition.UNSURE
         op !is EqualityOp -> null
-        leftValue is DfaUnknownValue && rightValue is DfaUnknownValue -> if (equalVariable(leftExpr, rightExpr)) DfaCondition(ThreeState.fromBoolean(op is EqualityOp.EQ)) else DfaCondition.UNSURE
+        leftValue is DfaUnknownValue && rightValue is DfaUnknownValue -> if (equals(leftExpr, rightExpr)) DfaCondition(ThreeState.fromBoolean(op is EqualityOp.EQ)) else DfaCondition.UNSURE
         leftValue is DfaConstValue && rightValue is DfaConstValue -> DfaCondition(ThreeState.fromBoolean(if (op is EqualityOp.EQ) leftValue == rightValue else leftValue != rightValue))
         leftValue is DfaConstValue && rightValue is DfaUnknownValue -> valueFromConstantAndUnknown(leftValue, op, rightExpr)
         leftValue is DfaUnknownValue && rightValue is DfaConstValue -> valueFromConstantAndUnknown(rightValue, op, leftExpr)
         else -> null
     }
 
-    private fun equalVariable(leftExpr: RsExpr?, rightExpr: RsExpr?): Boolean {
+    private fun equals(leftExpr: RsExpr?, rightExpr: RsExpr?): Boolean {
         val leftVariable = leftExpr?.toVariable() ?: return false
         val rightVariable = rightExpr?.toVariable() ?: return false
         return leftVariable == rightVariable
@@ -276,7 +274,7 @@ class DataFlowRunner(val function: RsFunction) {
 
         val value = tryEvaluateConst(op, expr.left, leftValue, expr.right, rightValue)
         if (value != null) return value
-
+//      TODO check type?
         if (leftValue.type != rightValue.type) return DfaCondition.UNSURE
         val leftRange = LongRangeSet.fromDfaValue(leftValue) ?: return DfaCondition.UNSURE
         val rightRange = LongRangeSet.fromDfaValue(rightValue) ?: return DfaCondition.UNSURE
@@ -328,6 +326,11 @@ class DataFlowRunner(val function: RsFunction) {
         return tuple.exprList.map { valueFromExpr(it, state) }
     }
 
+    private fun DfaValue.addExprIfOverflow(expr: RsExpr): DfaValue {
+        if (this is DfaFactMapValue && this[DfaFactType.RANGE]?.isOverflow == true) overflowExpressions += expr
+        return this
+    }
+
     private fun valueFromExpr(expr: RsExpr?, state: DfaMemoryState): DfaValue {
         val expr = expr?.skipParenExprDown() ?: return DfaUnknownValue
         return when (expr) {
@@ -336,7 +339,7 @@ class DataFlowRunner(val function: RsFunction) {
             is RsBinaryExpr -> valueFromBinExpr(expr, state)
             is RsUnaryExpr -> valueFromUnaryExpr(expr, state)
             else -> valueFactory.createTypeValue(expr.type)
-        }
+        }.addExprIfOverflow(expr)
     }
 
     private fun valueFromUnaryExpr(expr: RsUnaryExpr, state: DfaMemoryState): DfaValue =
@@ -366,7 +369,7 @@ class DataFlowRunner(val function: RsFunction) {
         if (value != null) {
             return value
         }
-
+//      TODO check type?
         if (leftValue.type != rightValue.type) return DfaUnknownValue
         val leftRange = LongRangeSet.fromDfaValue(leftValue) ?: return DfaUnknownValue
         val rightRange = LongRangeSet.fromDfaValue(rightValue) ?: return DfaUnknownValue
@@ -383,7 +386,7 @@ class DataFlowRunner(val function: RsFunction) {
         leftExpr == null || rightExpr == null -> DfaUnknownValue
         op !is BoolOp -> null
         leftValue is DfaConstValue && rightValue is DfaConstValue -> valueFactory.createBoolValue(evaluateBoolExpr(op, leftValue.value as Boolean, rightValue.value as Boolean))
-        leftValue is DfaUnknownValue && rightValue is DfaUnknownValue -> if (equalVariable(leftExpr, rightExpr)) valueFactory.createBoolValue(op is EqualityOp.EQ) else DfaUnknownValue
+        leftValue is DfaUnknownValue && rightValue is DfaUnknownValue -> if (equals(leftExpr, rightExpr)) valueFactory.createBoolValue(op is EqualityOp.EQ) else DfaUnknownValue
         leftValue is DfaUnknownValue || rightValue is DfaUnknownValue || leftValue is DfaConstValue || rightValue is DfaConstValue -> DfaUnknownValue
         else -> null
     }
@@ -419,12 +422,12 @@ class DataFlowRunner(val function: RsFunction) {
 
     private fun visitLoop(expr: RsLoopExpr, dummyNode: CFGNode, loopNode: CFGNode, visitorState: NodeVisitorState) {
         updateNextState(dummyNode, visitorState)
-        lineVisit(visitorState, dummyNode.index)
+        visitBranch(visitorState, dummyNode.index)
     }
 
     private fun visitWhile(whileExpr: RsWhileExpr, dummyNode: CFGNode, whileNode: CFGNode, visitorState: NodeVisitorState) {
         updateNextState(dummyNode, visitorState)
-        lineVisit(visitorState, whileNode.index)
+        visitBranch(visitorState, whileNode.index)
 
         val expr = whileExpr.condition?.expr
         if (expr != null) {
@@ -438,12 +441,13 @@ class DataFlowRunner(val function: RsFunction) {
     //TODO: check expr return
     private fun visitFor(expr: RsForExpr, dummyNode: CFGNode, forNode: CFGNode, visitorState: NodeVisitorState) {
         updateNextState(dummyNode, visitorState)
-        lineVisit(visitorState, forNode.index)
+        visitBranch(visitorState, forNode.index)
         // TODO: check expr and visit block
         updateNextState(forNode, visitorState)
     }
 }
 
+// TODO get rid of this class
 private class NodeVisitorState(block: RsBlock) {
     //    private val visited = hashSetOf<CFGNode>()
     private val cfg = buildFor(block)

@@ -53,6 +53,8 @@ private fun createDescription(holder: ProblemsHolder, runner: DataFlowRunner) {
     trueSet.forEach { registerConstantBoolean(holder, it, true) }
     falseSet.forEach { registerConstantBoolean(holder, it, false) }
 
+    runner.overflowExpressions.forEach { registerOverflow(holder, it) }
+
 //    registerUnreachableCode(holder, runner.unvisitedElements)
     //dor debug
     addStates(holder, runner.resultState)
@@ -74,4 +76,8 @@ private fun addStates(holder: ProblemsHolder, state: DfaMemoryState?) {
 
 private fun registerConstantBoolean(holder: ProblemsHolder, expr: RsExpr, value: Boolean) {
     holder.registerProblem(expr, "Condition '${expr.text}' is always '$value'")
+}
+
+private fun registerOverflow(holder: ProblemsHolder, expr: RsExpr) {
+    holder.registerProblem(expr, "Expression '${expr.text}' is overflow")
 }

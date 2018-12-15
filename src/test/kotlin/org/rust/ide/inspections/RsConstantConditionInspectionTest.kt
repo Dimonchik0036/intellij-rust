@@ -34,7 +34,7 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
     fun `test declaration from overflow expression`() = checkWithExpandValues("""
         fn main() {
             let x/*{200}*/ = 200u8;
-            let y/*{!}*/= x * 2u8;
+            let y/*{!}*/= <warning descr="Expression 'x * 1u8 * 2u8' is overflow">x * 1u8 * 2u8</warning>;
         }
     """)
 
@@ -92,6 +92,14 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
         fn foo(a/*{?}*/: bool) {
             let t/*{true}*/ = a == a;
             let f/*{false}*/ = a != a;
+        }
+    """)
+
+    fun `test overflow in compare`() = checkWithExpandValues("""
+        fn test(input/*{-2147483648..2147483647}*/: i32) {
+            if input > 2000000000 && <warning descr="Expression 'input * 10' is overflow">input * 10</warning> > 2000000001 {
+
+            }
         }
     """)
 
