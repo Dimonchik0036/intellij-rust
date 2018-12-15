@@ -294,7 +294,7 @@ sealed class LongRangeSet(val type: TyInteger) {
 
     abstract val asRanges: LongArray
 
-    fun to(type : Ty?) : LongRangeSet? = fromType(type)?.intersect(this)
+    fun to(type: Ty?): LongRangeSet? = fromType(type)?.intersect(this)
 
     protected open val fixRange: LongRangeSet get() = type.toRange().intersect(this)
 
@@ -829,8 +829,7 @@ class RangeSet(val ranges: LongArray, type: TyInteger) : LongRangeSet(type) {
     }
 
     override operator fun contains(other: LongRangeSet): Boolean {
-        if (other.isEmpty || other === this) return true
-        if (other.isUnknown) return false
+        if (other.isEmpty || other.isUnknown || other === this) return true
         if (other is Point) return contains(other.value)
         var result = other
         for (i in ranges.indices step 2) {

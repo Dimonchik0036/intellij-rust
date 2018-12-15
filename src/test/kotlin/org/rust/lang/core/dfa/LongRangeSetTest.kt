@@ -9,36 +9,53 @@ import org.rust.RsTestBase
 import org.rust.lang.core.dfa.LongRangeSet.Companion.all
 import org.rust.lang.core.dfa.LongRangeSet.Companion.empty
 import org.rust.lang.core.dfa.LongRangeSet.Companion.fromConstant
-import org.rust.lang.core.dfa.LongRangeSet.Companion.fromType
 import org.rust.lang.core.dfa.LongRangeSet.Companion.point
 import org.rust.lang.core.dfa.LongRangeSet.Companion.range
-import org.rust.lang.core.dfa.LongRangeSet.Companion.set
 import org.rust.lang.core.dfa.LongRangeSet.Companion.unknown
 import org.rust.lang.core.psi.ext.ComparisonOp
 import org.rust.lang.core.psi.ext.EqualityOp
+import org.rust.lang.core.types.ty.Ty
 import org.rust.lang.core.types.ty.TyFloat
 import org.rust.lang.core.types.ty.TyInteger
 import org.rust.lang.core.types.ty.TyStr
 import java.util.*
+import kotlin.collections.set
 import kotlin.streams.asSequence
+import kotlin.test.assertFails
 import kotlin.test.assertNotEquals
 
 class LongRangeSetTest : RsTestBase() {
+    fun `test long range set from string`() {
+        checkSet("{}", setFromString(""))
+        checkSet("{!}", setFromString("!"))
+        checkSet("{?}", setFromString("?"))
+        checkSet("{42}", setFromString("42"))
+        checkSet("{42}", setFromString("42, 42"))
+        checkSet("{42}", setFromString("42..42"))
+        checkSet("{0..42}", setFromString("0..42"))
+        checkSet("{-10..42}", setFromString("-10..42"))
+        checkSet("{-10..-5}", setFromString("-10..-5"))
+        checkSet("{-10..-1, 1..10}", setFromString("-10..-1, 1..10"))
+        checkSet("{-10..-1, 1..10, 42}", setFromString("-10..-1, 1..10, 42"))
+        assertFails { setFromString("a") }
+        assertFails { setFromString(",1,42") }
+    }
+
     fun `test to string`() {
-        checkSet("{}", empty())
+        checkSet("{}", setFromString(""))
         checkSet("{!}", empty(true))
         TyInteger.VALUES.forEach {
             checkSet("{10}", point(10, it))
             checkSet("{10}", range(10, 10, it))
             checkSet("{10, 11}", range(10, 11, it))
             checkSet("{10..100}", range(10, 100, it))
-            checkSet("{0..10, 12..15}", set(longArrayOf(0, 10, 12, 15), it))
+            checkSet("{0..10, 12..15}", setFromString("0..10, 12..15", it))
         }
     }
 
     fun `test from type`() {
-        assertNull(fromType(TyFloat.DEFAULT))
-        assertNull(fromType(TyStr))
+        assertNull(LongRangeSet.fromType(TyFloat.DEFAULT))
+        assertNull(LongRangeSet.fromType(TyStr))
         checkSet("{-128..127}", fromType(TyInteger.I8))
         checkSet("{0..255}", fromType(TyInteger.U8))
         checkSet("{-32768..32767}", fromType(TyInteger.I16))
@@ -67,8 +84,8 @@ class LongRangeSetTest : RsTestBase() {
             assertEquals(range(10, 11, it), range(10, 11, it))
             assertNotEquals(range(10, 11, it), range(10, 12, it))
 
-            assertEquals(set(longArrayOf(0, 10, 12, 15), it), set(longArrayOf(0, 10, 12, 15), it))
-            assertNotEquals(set(longArrayOf(0, 10, 12, 15), it), set(longArrayOf(0, 9, 12, 15), it))
+            assertEquals(setFromString("0..10, 12..15", it), setFromString("0..10, 12..15", it))
+            assertNotEquals(setFromString("0..10, 12..15", it), setFromString("0..9, 12..15", it))
         }
     }
 
@@ -113,8 +130,8 @@ class LongRangeSetTest : RsTestBase() {
 
         checkSet("{0..2, 5..15, 19, 20}", range(0, 20).subtract(range(3, 18).subtract(range(5, 15))))
 
-        val first = fromType(TyInteger.U8)!!.without(45)
-        val second = fromType(TyInteger.U8)!!.without(32).without(40).without(44).without(45).without(46).without(58).without(59).without(61)
+        val first = fromType(TyInteger.U8).without(45)
+        val second = fromType(TyInteger.U8).without(32).without(40).without(44).without(45).without(46).without(58).without(59).without(61)
         checkSet("{0..44, 46..255}", first)
         checkSet("{0..31, 33..39, 41..43, 47..57, 60, 62..255}", second)
         checkSet("{32, 40, 44, 46, 58, 59, 61}", first.subtract(second))
@@ -129,9 +146,8 @@ class LongRangeSetTest : RsTestBase() {
         map[range(10, 10)] = "10-10"
         map[range(10, 11)] = "10-11"
         map[range(10, 12)] = "10-12"
-        map[set(longArrayOf(0, 5, 8, 10))] = "0-5,8-10"
-        val longNotChar = fromType(TyInteger.I64)!!.subtract(fromType(TyInteger.U16)!!)
-        map[longNotChar] = "I64NotU16"
+        map[setFromString("0..5, 8..10")] = "0-5,8-10"
+        map[fromType(TyInteger.I64).subtract(fromType(TyInteger.U16))] = "I64NotU16"
 
         assertEquals("empty", map[empty()])
         assertEquals("empty_o", map[empty(overflow = true)])
@@ -140,15 +156,15 @@ class LongRangeSetTest : RsTestBase() {
         assertEquals("10-10", map[range(10, 10)])
         assertEquals("10-11", map[range(10, 11)])
         assertEquals("10-12", map[range(10, 12)])
-        assertEquals("0-5,8-10", map[set(longArrayOf(0, 5, 8, 10))])
+        assertEquals("0-5,8-10", map[setFromString("0..5, 8..10")])
         assertNull(map[range(11, 11)])
-        assertEquals("I64NotU16", map[fromType(TyInteger.I64)!!.subtract(fromType(TyInteger.U16)!!)])
+        assertEquals("I64NotU16", map[fromType(TyInteger.I64).subtract(fromType(TyInteger.U16))])
     }
 
 
     fun `test intersects`() {
-        assertFalse(empty().intersects(fromType(TyInteger.I64)!!))
-        assertTrue(point(Long.MIN_VALUE).intersects(fromType(TyInteger.I64)!!))
+        assertFalse(empty().intersects(fromType(TyInteger.I64)))
+        assertTrue(point(Long.MIN_VALUE).intersects(fromType(TyInteger.I64)))
         assertFalse(point(10).intersects(point(11)))
         assertTrue(point(10).intersects(point(10)))
 
@@ -214,8 +230,8 @@ class LongRangeSetTest : RsTestBase() {
                 assertTrue(message, intersection.min >= Math.max(left.min, right.min))
                 assertTrue(message, intersection.max <= Math.min(left.max, right.max))
             }
-            assertEquals(message, intersection, right.subtract(fromType(TyInteger.I64)!!.subtract(left)))
-            assertEquals(message, intersection, left.subtract(fromType(TyInteger.I64)!!.subtract(right)))
+            assertEquals(message, intersection, right.subtract(fromType(TyInteger.I64).subtract(left)))
+            assertEquals(message, intersection, left.subtract(fromType(TyInteger.I64).subtract(right)))
             intersection.stream.limit(1000).forEach { e ->
                 assertTrue(left.contains(e))
                 assertTrue(right.contains(e))
@@ -293,14 +309,96 @@ class LongRangeSetTest : RsTestBase() {
         checkSet("{-1000..-701, -499..-101, 301..599, 801..900}", -set)
     }
 
-    fun `test contains`() {
-        assertTrue(range(0, 10).contains(5))
-        assertTrue(range(0, 10).unite(range(13, 20)).contains(point(5)))
-        assertTrue(range(0, 10).unite(range(13, 20)).contains(empty()))
-        assertFalse(range(0, 10).unite(range(13, 20)).contains(point(12)))
-        assertFalse(range(0, 10).unite(range(13, 20)).contains(range(9, 15)))
-        assertTrue(range(0, 10).unite(range(13, 20)).contains(range(2, 8).unite(range(15, 17))))
+    private fun checkPredicate(sets: Collection<LongRangeSet>, condition: (LongRangeSet) -> Boolean): Unit = sets.filterNot(condition).let {
+        if (it.isNotEmpty()) error("False predicate in ${it.joinToString(", ")}")
     }
+
+    private inline fun <reified T> checkType(vararg sets: Collection<LongRangeSet>) {
+        if (!sets.any { it.any { set -> set is T } }) error("Couldn't find ${T::class}")
+    }
+
+    private fun checkHasAllTypes(vararg sets: Collection<LongRangeSet>) {
+        checkType<Empty>(*sets)
+        checkType<Unknown>(*sets)
+        checkType<Point>(*sets)
+        checkType<Range>(*sets)
+        checkType<RangeSet>(*sets)
+    }
+
+    private fun checkContains(range: LongRangeSet, trueCollection: Collection<LongRangeSet> = emptyList(), falseCollection: Collection<LongRangeSet> = emptyList()) {
+        checkHasAllTypes(trueCollection, falseCollection)
+        checkPredicate(trueCollection) { range in it }
+        checkPredicate(falseCollection) { range !in it }
+    }
+
+    fun `test contains point`() = checkContains(
+        range = point(42),
+        trueCollection = listOf(
+            point(42),
+            range(0, 100),
+            range(0, 42),
+            range(42, 100),
+            setFromString("0, 11, 42"),
+            setFromString("0..42, 55..10000"),
+            setFromString("42..44, 55..10000"),
+            unknown()
+        ), falseCollection = listOf(
+        empty(),
+        point(666),
+        range(0, 41),
+        setFromString("0, 11, 44"),
+        setFromString("0..41, 43..10000")
+    ))
+
+    fun `test contains range`() = checkContains(
+        range = range(-5, 15),
+        trueCollection = listOf(
+            range(-5, 15),
+            range(-100, 100500),
+            setFromString("-70..55, 99"),
+            unknown()
+        ), falseCollection = listOf(
+        point(10),
+        range(-4, 15),
+        setFromString("-4..15, 20"),
+        point(5),
+        empty()
+    ))
+
+    fun `test contains set`() = checkContains(
+        range = setFromString("-5..10, 20..50, 70..120"),
+        trueCollection = listOf(
+            range(-5, 120),
+            setFromString("-5..10, 20..50, 70..120, 200"),
+            setFromString("-50..50, 66..200"),
+            unknown()
+        ), falseCollection = listOf(
+        point(42),
+        range(0, 100),
+        empty()
+    ))
+
+    fun `test contains empty`() = checkContains(
+        range = empty(),
+        trueCollection = listOf(
+            point(42),
+            range(0, 100),
+            setFromString("0, 11, 42"),
+            empty(),
+            unknown()
+        )
+    )
+
+    fun `test contains unknown`() = checkContains(
+        range = unknown(),
+        trueCollection = listOf(
+            point(42),
+            range(0, 100),
+            setFromString("0, 11, 42"),
+            unknown()
+        ), falseCollection = listOf(
+        empty()
+    ))
 
     private fun checkSet(expected: String, actual: LongRangeSet?) = assertEquals(expected, actual.toString())
 //
@@ -527,3 +625,24 @@ class LongRangeSetTest : RsTestBase() {
 //        }
 //    }
 }
+
+val numberRegex: Regex = Regex("-?[\\d]+")
+private fun setFromString(set: String, type: TyInteger = TyInteger.I64): LongRangeSet = when (set) {
+    "" -> empty()
+    "!" -> empty(true)
+    "?" -> unknown()
+    else -> {
+        set.splitToSequence(',')
+            .map { string ->
+                val numbers = numberRegex.findAll(string).map { it.value.toLong() }.toList()
+                when (numbers.size) {
+                    1 -> point(numbers[0], type)
+                    2 -> range(numbers[0], numbers[1], type)
+                    else -> error("Invalid set '$set'")
+                }
+            }
+            .reduce(LongRangeSet::unite)
+    }
+}
+
+private fun fromType(type: Ty?): LongRangeSet = LongRangeSet.fromType(type) ?: error("Bad type '$type'")
