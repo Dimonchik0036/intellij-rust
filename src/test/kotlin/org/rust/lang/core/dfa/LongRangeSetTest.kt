@@ -154,6 +154,7 @@ class LongRangeSetTest : RsTestBase() {
             listOf(
                 empty(),
                 unknown(),
+                all(),
                 point(42),
                 range(-5, 50),
                 setFromString("-100..0, 2..50")
@@ -167,6 +168,7 @@ class LongRangeSetTest : RsTestBase() {
             listOf(
                 empty(),
                 unknown(),
+                all(),
                 point(42),
                 range(-5, 50),
                 setFromString("-100..0, 2..50")
@@ -185,6 +187,7 @@ class LongRangeSetTest : RsTestBase() {
                 setFromString("-100..0, 2..41, 43..66")
             ) to { it -> point == point.subtract(it) },
             listOf(
+                all(),
                 unknown(),
                 point(42),
                 range(4, 43),
@@ -206,6 +209,7 @@ class LongRangeSetTest : RsTestBase() {
             ) to { it -> range == range.subtract(it) },
             listOf(
                 unknown(),
+                all(),
                 range(4, 50),
                 range(-4, 100),
                 setFromString("40, 42..66"),
@@ -326,44 +330,92 @@ class LongRangeSetTest : RsTestBase() {
         assertEquals("I64NotU16", map[fromType(TyInteger.I64).subtract(fromType(TyInteger.U16))])
     }
 
+    fun `test intersects empty`() {
+        val empty = empty()
+        checkMethodWithBooleanResult(
+            listOf(
+                empty(),
+                all(),
+                unknown(),
+                setFromString("5, 55..60"),
+                point(42)
+            ) to { it -> !it.intersects(empty) && !empty.intersects(it) }
+        )
+    }
 
-    fun `test intersects`() {
-        assertFalse(empty().intersects(fromType(TyInteger.I64)))
-        assertTrue(point(Long.MIN_VALUE).intersects(fromType(TyInteger.I64)))
-        assertFalse(point(10).intersects(point(11)))
-        assertTrue(point(10).intersects(point(10)))
+    fun `test intersects unknown`() {
+        val unknown = unknown()
+        checkMethodWithBooleanResult(
+            listOf(
+                all(),
+                unknown(),
+                setFromString("5, 55..60"),
+                point(42)
+            ) to { it -> it.intersects(unknown) && unknown.intersects(it) },
+            listOf(
+                empty()
+            ) to { it -> !it.intersects(unknown) && !unknown.intersects(it) }
+        )
+    }
 
-        assertTrue(range(10, 100).intersects(point(10)))
-        assertTrue(range(10, 100).intersects(point(100)))
-        assertFalse(range(10, 100).intersects(point(101)))
-        assertFalse(range(10, 100).intersects(point(9)))
+    fun `test intersects point`() {
+        val point = point(42)
+        checkMethodWithBooleanResult(
+            listOf(
+                all(),
+                unknown(),
+                setFromString("5, 42..60"),
+                setFromString("42, 55..60"),
+                point(42)
+            ) to { it -> it.intersects(point) && point.intersects(it) },
+            listOf(
+                empty(),
+                point(0),
+                range(0, 40),
+                setFromString("41, 55..60")
+            ) to { it -> !it.intersects(point) && !point.intersects(it) }
+        )
+    }
 
-        val range1020 = range(10, 20)
-        assertTrue(range1020.intersects(range1020))
-        assertTrue(range1020.intersects(range(10, 30)))
-        assertTrue(range1020.intersects(range(20, 30)))
-        assertTrue(range1020.intersects(range(0, 30)))
-        assertTrue(range1020.intersects(range(0, 10)))
-        assertTrue(range1020.intersects(range(0, 20)))
+    fun `test intersects range`() {
+        val range = range(-7, 7)
+        checkMethodWithBooleanResult(
+            listOf(
+                all(),
+                unknown(),
+                setFromString("-7, 42..60"),
+                setFromString("-3..4, 55..60"),
+                point(-0),
+                range(-1, 1)
+            ) to { it -> it.intersects(range) && range.intersects(it) },
+            listOf(
+                empty(),
+                point(8),
+                range(-10, -8),
+                setFromString("-55, 55..60")
+            ) to { it -> !it.intersects(range) && !range.intersects(it) }
+        )
+    }
 
-        assertFalse(range1020.intersects(range(0, 9)))
-        assertFalse(range1020.intersects(range(21, 30)))
-
-        val rangeSet = range1020.subtract(range(12, 13)).subtract(range(17, 18))
-        assertFalse(rangeSet.intersects(point(12)))
-        assertFalse(point(12).intersects(rangeSet))
-        assertFalse(rangeSet.intersects(empty()))
-        assertFalse(rangeSet.intersects(range(12, 13)))
-        assertFalse(range(12, 13).intersects(rangeSet))
-        assertFalse(rangeSet.intersects(range(0, 9)))
-        assertFalse(rangeSet.intersects(range(21, 30)))
-        assertTrue(rangeSet.intersects(rangeSet))
-        assertTrue(rangeSet.intersects(range1020))
-        assertTrue(rangeSet.intersects(point(11)))
-
-        val rangeSet2 = range1020.subtract(rangeSet)
-        checkSet("{12, 13, 17, 18}", rangeSet2)
-        assertFalse(rangeSet.intersects(rangeSet2))
+    fun `test intersects set`() {
+        val set = setFromString("-5, 10..15")
+        checkMethodWithBooleanResult(
+            listOf(
+                all(),
+                unknown(),
+                setFromString("-5, 42..60"),
+                setFromString("-5, 10..15"),
+                point(-5),
+                range(-1, 11),
+                range(10, 17)
+            ) to { it -> it.intersects(set) && set.intersects(it) },
+            listOf(
+                empty(),
+                point(8),
+                range(-4, 9),
+                setFromString("-55, 9, 55..60")
+            ) to { it -> !it.intersects(set) && !set.intersects(it) }
+        )
     }
 
     fun `test intersect`() {

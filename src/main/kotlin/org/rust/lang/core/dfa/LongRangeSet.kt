@@ -412,7 +412,7 @@ object Unknown : LongRangeSet(TyInteger.I64) {
 
     override val max: Long get() = throw NoSuchElementException()
 
-    override fun intersects(other: LongRangeSet): Boolean = true
+    override fun intersects(other: LongRangeSet): Boolean = !other.isEmpty
 
     override operator fun contains(value: Long): Boolean = true
 
@@ -593,9 +593,12 @@ class Range(val from: Long, val to: Long, type: TyInteger) : LongRangeSet(type) 
 
     override val max: Long get() = to
 
-    override fun intersects(other: LongRangeSet): Boolean =
-        if (other.isEmpty) false
-        else (other as? RangeSet)?.intersects(this) ?: (this.to >= other.min && this.from <= other.max)
+    override fun intersects(other: LongRangeSet): Boolean = when {
+        other.isEmpty -> false
+        other.isUnknown -> true
+        other is RangeSet -> other.intersects(this)
+        else -> this.to >= other.min && this.from <= other.max
+    }
 
     override operator fun contains(value: Long): Boolean = value in from..to
 
