@@ -947,12 +947,86 @@ class LongRangeSetTest : RsTestBase() {
         checkAdd(point(Long.MIN_VALUE + 20, TyInteger.I128), range(-30, -10, TyInteger.I128), "{?}")
     }
 
+    fun `test add point to set`() {
+        val point = point(42)
+        checkAdd(point, setFromString("-5, 11..22"), "{37, 53..64}")
+        checkAdd(point, setFromString("1, 11..22, 33..55"), "{43, 53..64, 75..97}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val pointI8 = point(42, TyInteger.I8)
+        checkAdd(pointI8, setFromString("-5, 11..100", TyInteger.I8), "{37, 53..127}", filter)
+        checkAdd(pointI8, setFromString("89, 100..105", TyInteger.I8), "{!}", filter)
+        checkAdd(pointI8, setFromString("-128, 100..105", TyInteger.I8), "{-86}", filter)
+
+        checkAdd(point(-1, TyInteger.I8), setFromString("-128, -100..1", TyInteger.I8), "{-101..0}", filter)
+        checkAdd(point(-30, TyInteger.I8), setFromString("-128, -105..-100", TyInteger.I8), "{!}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkAdd(point(Long.MAX_VALUE - 60, it), setFromString("-128, 100..150", it), "{?}")
+        }
+
+        checkAdd(point(Long.MIN_VALUE + 20, TyInteger.I128), setFromString("-33..-10, 0", TyInteger.I128), "{?}")
+    }
+
     fun `test add range to range`() {
         checkAdd(range(Long.MAX_VALUE - 10, Long.MAX_VALUE), range(1, 5), "{${Long.MAX_VALUE - 9}..${Long.MAX_VALUE}}")
         checkAdd(range(Long.MIN_VALUE, Long.MIN_VALUE + 10), range(-1, 5), "{${Long.MIN_VALUE}..${Long.MIN_VALUE + 15}}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        checkAdd(range(-128, 127, TyInteger.I8), range(-10, 10, TyInteger.I8), "{-128..127}", filter)
+        checkAdd(range(-100, 0, TyInteger.I8), range(100, 120, TyInteger.I8), "{0..120}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkAdd(range(Long.MAX_VALUE - 60, Long.MAX_VALUE - 50, it), range(10, 66, it), "{?}")
+        }
+
+        checkAdd(range(Long.MIN_VALUE + 20, Long.MIN_VALUE + 30, TyInteger.I128), range(-21, 0, TyInteger.I128), "{?}")
     }
 
-    private fun checkAdd(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) = checkBinOp(left, right, expected, ArithmeticOp.ADD, ::checkedAddOrNull, filter)
+    fun `test add range to set`() {
+        checkAdd(range(10, 20), setFromString("-5, 11..22"), "{5..15, 21..42}")
+        checkAdd(range(-77, 2), setFromString("1, 11..22, 33..55"), "{-76..57}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val rangeI8 = range(42, 100, TyInteger.I8)
+        checkAdd(rangeI8, setFromString("-5, 11..100", TyInteger.I8), "{37..127}", filter)
+        checkAdd(rangeI8, setFromString("89, 100..105", TyInteger.I8), "{!}", filter)
+        checkAdd(rangeI8, setFromString("-128, 100..105", TyInteger.I8), "{-86..-28}", filter)
+
+        checkAdd(range(-1, 5, TyInteger.I8), setFromString("-128, -100..1", TyInteger.I8), "{-128..-123, -101..6}", filter)
+        checkAdd(range(-35, -29, TyInteger.I8), setFromString("-128, -105..-100", TyInteger.I8), "{!}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkAdd(range(Long.MAX_VALUE - 60, Long.MAX_VALUE - 50, it), setFromString("-128, 100..150", it), "{?}")
+        }
+
+        checkAdd(range(Long.MIN_VALUE + 20, Long.MIN_VALUE + 30, TyInteger.I128), setFromString("-33..-10, 0", TyInteger.I128), "{?}")
+    }
+
+    fun `test add set to set`() {
+        checkAdd(setFromString("-5..0, 23..44"), setFromString("-5, 11..22"), "{-10..-5, 6..66}")
+        checkAdd(setFromString("-5, 11..22"), setFromString("1, 11..22, 33..55"), "{-4, 6..77}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val setI8 = setFromString("-5, 22, 30..40", TyInteger.I8)
+        checkAdd(setI8, setFromString("-5, 11..100", TyInteger.I8), "{-10, 6..127}", filter)
+        checkAdd(setI8, setFromString("89, 100..105", TyInteger.I8), "{84, 95..100, 111, 119..127}", filter)
+        checkAdd(setI8, setFromString("-128, 127", TyInteger.I8), "{-106, -98..-88, 122}", filter)
+
+        checkAdd(range(-1, 5, TyInteger.I8), setFromString("-128, -100..1", TyInteger.I8), "{-128..-123, -101..6}", filter)
+        checkAdd(setFromString("-128..-127, 126..127", TyInteger.I8), setFromString("-128..-127, 126..127", TyInteger.I8), "{-2..0}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkAdd(setFromString("${Long.MAX_VALUE - 60}..${Long.MAX_VALUE - 50}, 0", it), setFromString("-128, 100..150", it), "{?}")
+        }
+
+        checkAdd(setFromString("${Long.MIN_VALUE + 20}..${Long.MIN_VALUE + 30}, 0", TyInteger.I128), setFromString("-33..-10, 0", TyInteger.I128), "{?}")
+    }
+
+    private fun checkAdd(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) {
+        checkBinOp(left, right, expected, ArithmeticOp.ADD, ::checkedAddOrNull, filter)
+        checkBinOp(right, left, expected, ArithmeticOp.ADD, ::checkedAddOrNull, filter)
+    }
 
     private fun checkSet(expected: String, actual: LongRangeSet?) = assertEquals(expected, actual.toString())
 
@@ -1210,9 +1284,8 @@ class LongRangeSetTest : RsTestBase() {
                 right.stream
                     .filter {
                         val res = operator(a, it)
-                        res != null && filter(res)
+                        res != null && filter(res) && !result.contains(res)
                     }
-                    .filter { !result.contains(operator(a, it)!!) }
                     .mapToObj { b -> "$a ${operation.sign} $b = ${operator(a, b)}" }
             }
             .flatMap { it }
