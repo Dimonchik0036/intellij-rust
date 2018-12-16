@@ -474,7 +474,7 @@ class Point(val value: Long, type: TyInteger) : LongRangeSet(type) {
         other is Point -> {
             val result = checkedAddOrNull(value, other.value)
             when (result) {
-                null -> if (isLarge) unknown() else empty(true)
+                null -> if (isLargeOnTop && value > 0 || isLargeBelow && value < 0) unknown() else empty(true)
                 overflowCorrection(result) -> point(result)
                 else -> empty(true)
             }
@@ -646,11 +646,11 @@ class Range(val from: Long, val to: Long, type: TyInteger) : LongRangeSet(type) 
         return result
     }
 
-    fun plus(from1: Long, to1: Long, from2: Long, to2: Long): LongRangeSet {
+    private fun plus(from1: Long, to1: Long, from2: Long, to2: Long): LongRangeSet {
         val from = checkedAddOrNull(from1, from2)
         val to = checkedAddOrNull(to1, to2)
         return when {
-            from == null || to == null -> if (isLarge) unknown() else range(from ?: minPossible, to ?: maxPossible)
+            from == null || to == null -> if (to == null && isLargeOnTop || from == null && isLargeBelow) unknown() else range(from ?: minPossible, to ?: maxPossible)
             from > maxPossible || to < minPossible -> empty(true)
             else -> range(overflowCorrection(from), overflowCorrection(to))
         }
