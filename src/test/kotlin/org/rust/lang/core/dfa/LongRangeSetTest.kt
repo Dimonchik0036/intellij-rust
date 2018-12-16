@@ -688,7 +688,6 @@ class LongRangeSetTest : RsTestBase() {
     fun `test compare unknown`() {
         val unknown = unknown()
         (ComparisonOp.values() + EqualityOp.EQ).forEach {
-            println(it)
             checkMethodWithBooleanResult(
                 ignore = Empty::class,
                 pair = listOf(
@@ -703,7 +702,7 @@ class LongRangeSetTest : RsTestBase() {
         }
 
         checkMethodWithBooleanResult(
-            ignore = listOf(Empty::class, Unknown::class),
+            ignore = listOf(Unknown::class),
             pair = listOf(
                 point(42),
                 range(0, 100),
@@ -718,6 +717,149 @@ class LongRangeSetTest : RsTestBase() {
         )
 
         assertTrue(unknown.compare(EqualityOp.EXCLEQ, unknown).toList().all { it.isUnknown })
+    }
+
+    private fun checkCompare(lhs: LongRangeSet, rhs: LongRangeSet, op: BoolOp, expectedLeft: String, expectedRight: String) =
+        lhs.compare(op, rhs).let {
+            checkSet(expectedLeft, it.first)
+            checkSet(expectedRight, it.second)
+        }
+
+    fun `test compare point to point`() {
+        val point = point(42)
+
+        val otherPoint = point(44)
+        checkCompare(point, otherPoint, EqualityOp.EQ, "{}", "{}")
+        checkCompare(point, otherPoint, EqualityOp.EXCLEQ, "{42}", "{44}")
+        checkCompare(point, otherPoint, ComparisonOp.LT, "{42}", "{44}")
+        checkCompare(point, otherPoint, ComparisonOp.LTEQ, "{42}", "{44}")
+        checkCompare(point, otherPoint, ComparisonOp.GT, "{}", "{}")
+        checkCompare(point, otherPoint, ComparisonOp.GTEQ, "{}", "{}")
+
+        val equalPoint = point(42)
+        checkCompare(point, equalPoint, EqualityOp.EQ, "{42}", "{42}")
+        checkCompare(point, equalPoint, EqualityOp.EXCLEQ, "{}", "{}")
+        checkCompare(point, equalPoint, ComparisonOp.LT, "{}", "{}")
+        checkCompare(point, equalPoint, ComparisonOp.LTEQ, "{42}", "{42}")
+        checkCompare(point, equalPoint, ComparisonOp.GT, "{}", "{}")
+        checkCompare(point, equalPoint, ComparisonOp.GTEQ, "{42}", "{42}")
+    }
+
+    fun `test compare point to range`() {
+        val point = point(42)
+
+        val rangeWithoutIntersect = range(-10, 4)
+        checkCompare(point, rangeWithoutIntersect, EqualityOp.EQ, "{}", "{}")
+        checkCompare(point, rangeWithoutIntersect, EqualityOp.EXCLEQ, "{42}", "{-10..4}")
+        checkCompare(point, rangeWithoutIntersect, ComparisonOp.LT, "{}", "{}")
+        checkCompare(point, rangeWithoutIntersect, ComparisonOp.LTEQ, "{}", "{}")
+        checkCompare(point, rangeWithoutIntersect, ComparisonOp.GT, "{42}", "{-10..4}")
+        checkCompare(point, rangeWithoutIntersect, ComparisonOp.GTEQ, "{42}", "{-10..4}")
+
+        val rangeWithIntersect = range(-10, 100)
+        checkCompare(point, rangeWithIntersect, EqualityOp.EQ, "{42}", "{42}")
+        checkCompare(point, rangeWithIntersect, EqualityOp.EXCLEQ, "{}", "{-10..41, 43..100}")
+        checkCompare(point, rangeWithIntersect, ComparisonOp.LT, "{42}", "{43..100}")
+        checkCompare(point, rangeWithIntersect, ComparisonOp.LTEQ, "{42}", "{42..100}")
+        checkCompare(point, rangeWithIntersect, ComparisonOp.GT, "{42}", "{-10..41}")
+        checkCompare(point, rangeWithIntersect, ComparisonOp.GTEQ, "{42}", "{-10..42}")
+    }
+
+    fun `test compare point to set`() {
+        val point = point(42)
+
+        val setWithoutIntersect = setFromString("-50..0, 41, 100..102")
+        checkCompare(point, setWithoutIntersect, EqualityOp.EQ, "{}", "{}")
+        checkCompare(point, setWithoutIntersect, EqualityOp.EXCLEQ, "{42}", "{-50..0, 41, 100..102}")
+        checkCompare(point, setWithoutIntersect, ComparisonOp.LT, "{42}", "{100..102}")
+        checkCompare(point, setWithoutIntersect, ComparisonOp.LTEQ, "{42}", "{100..102}")
+        checkCompare(point, setWithoutIntersect, ComparisonOp.GT, "{42}", "{-50..0, 41}")
+        checkCompare(point, setWithoutIntersect, ComparisonOp.GTEQ, "{42}", "{-50..0, 41}")
+
+        val setWithIntersectInPoint = setFromString("-50..0, 42, 100..102")
+        checkCompare(point, setWithIntersectInPoint, EqualityOp.EQ, "{42}", "{42}")
+        checkCompare(point, setWithIntersectInPoint, EqualityOp.EXCLEQ, "{}", "{-50..0, 100..102}")
+        checkCompare(point, setWithIntersectInPoint, ComparisonOp.LT, "{42}", "{100..102}")
+        checkCompare(point, setWithIntersectInPoint, ComparisonOp.LTEQ, "{42}", "{42, 100..102}")
+        checkCompare(point, setWithIntersectInPoint, ComparisonOp.GT, "{42}", "{-50..0}")
+        checkCompare(point, setWithIntersectInPoint, ComparisonOp.GTEQ, "{42}", "{-50..0, 42}")
+
+        val setWithIntersectInRange = setFromString("-50..0, 30..50, 100..102")
+        checkCompare(point, setWithIntersectInRange, EqualityOp.EQ, "{42}", "{42}")
+        checkCompare(point, setWithIntersectInRange, EqualityOp.EXCLEQ, "{}", "{-50..0, 30..41, 43..50, 100..102}")
+        checkCompare(point, setWithIntersectInRange, ComparisonOp.LT, "{42}", "{43..50, 100..102}")
+        checkCompare(point, setWithIntersectInRange, ComparisonOp.LTEQ, "{42}", "{42..50, 100..102}")
+        checkCompare(point, setWithIntersectInRange, ComparisonOp.GT, "{42}", "{-50..0, 30..41}")
+        checkCompare(point, setWithIntersectInRange, ComparisonOp.GTEQ, "{42}", "{-50..0, 30..42}")
+    }
+
+    fun `test compare range to range`() {
+        val range = range(-1, 77)
+
+        val rangeWithoutIntersect = range(-10, -2)
+        checkCompare(range, rangeWithoutIntersect, EqualityOp.EQ, "{}", "{}")
+        checkCompare(range, rangeWithoutIntersect, EqualityOp.EXCLEQ, "{-1..77}", "{-10..-2}")
+        checkCompare(range, rangeWithoutIntersect, ComparisonOp.LT, "{}", "{}")
+        checkCompare(range, rangeWithoutIntersect, ComparisonOp.LTEQ, "{}", "{}")
+        checkCompare(range, rangeWithoutIntersect, ComparisonOp.GT, "{-1..77}", "{-10..-2}")
+        checkCompare(range, rangeWithoutIntersect, ComparisonOp.GTEQ, "{-1..77}", "{-10..-2}")
+
+        val rangeWithIntersect = range(-9, 11)
+        checkCompare(range, rangeWithIntersect, EqualityOp.EQ, "{-1..11}", "{-1..11}")
+        checkCompare(range, rangeWithIntersect, EqualityOp.EXCLEQ, "{12..77}", "{-9..-2}")
+        checkCompare(range, rangeWithIntersect, ComparisonOp.LT, "{-1..10}", "{0..11}")
+        checkCompare(range, rangeWithIntersect, ComparisonOp.LTEQ, "{-1..11}", "{-1..11}")
+        checkCompare(range, rangeWithIntersect, ComparisonOp.GT, "{-1..77}", "{-9..11}")
+        checkCompare(range, rangeWithIntersect, ComparisonOp.GTEQ, "{-1..77}", "{-9..11}")
+    }
+
+    fun `test compare range to set`() {
+        val range = range(-1, 77)
+
+        val setWithoutIntersect = setFromString("-50..-2, 78, 100..102")
+        checkCompare(range, setWithoutIntersect, EqualityOp.EQ, "{}", "{}")
+        checkCompare(range, setWithoutIntersect, EqualityOp.EXCLEQ, "{-1..77}", "{-50..-2, 78, 100..102}")
+        checkCompare(range, setWithoutIntersect, ComparisonOp.LT, "{-1..77}", "{78, 100..102}")
+        checkCompare(range, setWithoutIntersect, ComparisonOp.LTEQ, "{-1..77}", "{78, 100..102}")
+        checkCompare(range, setWithoutIntersect, ComparisonOp.GT, "{-1..77}", "{-50..-2}")
+        checkCompare(range, setWithoutIntersect, ComparisonOp.GTEQ, "{-1..77}", "{-50..-2}")
+
+        val setWithIntersectInRange = setFromString("-50..0, 30..50, 100..102")
+        checkCompare(range, setWithIntersectInRange, EqualityOp.EQ, "{-1, 0, 30..50}", "{-1, 0, 30..50}")
+        checkCompare(range, setWithIntersectInRange, EqualityOp.EXCLEQ, "{1..29, 51..77}", "{-50..-2, 100..102}")
+        checkCompare(range, setWithIntersectInRange, ComparisonOp.LT, "{-1..77}", "{0, 30..50, 100..102}")
+        checkCompare(range, setWithIntersectInRange, ComparisonOp.LTEQ, "{-1..77}", "{-1, 0, 30..50, 100..102}")
+        checkCompare(range, setWithIntersectInRange, ComparisonOp.GT, "{-1..77}", "{-50..0, 30..50}")
+        checkCompare(range, setWithIntersectInRange, ComparisonOp.GTEQ, "{-1..77}", "{-50..0, 30..50}")
+    }
+
+    fun `test compare symmetric`() {
+        val ranges = listOf(
+            point(42),
+            range(0, 100),
+            setFromString("0, 11, 42"),
+            empty(),
+            unknown()
+        )
+
+        val operators = listOf<Pair<BoolOp, BoolOp>>(
+            EqualityOp.EQ to EqualityOp.EQ,
+            EqualityOp.EXCLEQ to EqualityOp.EXCLEQ,
+            ComparisonOp.LT to ComparisonOp.GT,
+            ComparisonOp.LTEQ to ComparisonOp.GTEQ
+        )
+
+        ranges.forEach { range ->
+            operators.forEach { op ->
+                checkMethodWithBooleanResult(
+                    ranges to { other ->
+                        val (leftRange, rightOther) = range.compare(op.first, other)
+                        val (leftOther, rightRange) = other.compare(op.second, range)
+                        leftRange == rightRange && leftOther == rightOther
+                    }
+                )
+            }
+        }
     }
 
     fun `test check checkHasAllTypes function`() {
