@@ -423,7 +423,7 @@ object Unknown : LongRangeSet(TyInteger.I64) {
 
     override operator fun unaryMinus(): LongRangeSet = this
 
-    override operator fun plus(other: LongRangeSet): LongRangeSet = this
+    override operator fun plus(other: LongRangeSet): LongRangeSet = if (other.isEmpty) other else this
 
     override operator fun rem(divisor: LongRangeSet): LongRangeSet = this
 
@@ -471,13 +471,13 @@ class Point(val value: Long, type: TyInteger) : LongRangeSet(type) {
 
     override operator fun plus(other: LongRangeSet): LongRangeSet = when {
         other.isEmpty || other.isUnknown -> other
-        other is Point -> try {
-            val result = checkedAdd(value, other.value)
-            if (result == overflowCorrection(result)) point(result)
-            else empty(true)
-        } catch (e: ArithmeticException) {
-            // TODO i64 * i64 not unknown
-            unknown()
+        other is Point -> {
+            val result = checkedAddOrNull(value, other.value)
+            when (result) {
+                null -> if (isLarge) unknown() else empty(true)
+                overflowCorrection(result) -> point(result)
+                else -> empty(true)
+            }
         }
         else -> other + this
     }
@@ -646,14 +646,14 @@ class Range(val from: Long, val to: Long, type: TyInteger) : LongRangeSet(type) 
         return result
     }
 
-    fun plus(from1: Long, to1: Long, from2: Long, to2: Long): LongRangeSet = try {
-        val from = checkedAdd(from1, from2)
-        val to = checkedAdd(to1, to2)
-        if (from > maxPossible || to < minPossible) empty(true)
-        else range(overflowCorrection(from), overflowCorrection(to))
-    } catch (e: ArithmeticException) {
-        // TODO i64 * i64 not unknown
-        unknown()
+    fun plus(from1: Long, to1: Long, from2: Long, to2: Long): LongRangeSet {
+        val from = checkedAddOrNull(from1, from2)
+        val to = checkedAddOrNull(to1, to2)
+        return when {
+            from == null || to == null -> if (isLarge) unknown() else range(from ?: minPossible, to ?: maxPossible)
+            from > maxPossible || to < minPossible -> empty(true)
+            else -> range(overflowCorrection(from), overflowCorrection(to))
+        }
     }
 
     override operator fun rem(divisor: LongRangeSet): LongRangeSet {
@@ -993,3 +993,15 @@ private val ComparisonOp.mirror: ComparisonOp
         ComparisonOp.GTEQ -> ComparisonOp.LTEQ
         ComparisonOp.LTEQ -> ComparisonOp.GTEQ
     }
+
+fun checkedAddOrNull(a: Long, b: Long): Long? = try {
+    checkedAdd(a, b)
+} catch (e: ArithmeticException) {
+    null
+}
+
+fun checkedMultiplyOrNull(a: Long, b: Long): Long? = try {
+    checkedMultiply(a, b)
+} catch (e: ArithmeticException) {
+    null
+}

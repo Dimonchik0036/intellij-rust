@@ -12,6 +12,7 @@ import org.rust.lang.core.dfa.LongRangeSet.Companion.fromConstant
 import org.rust.lang.core.dfa.LongRangeSet.Companion.point
 import org.rust.lang.core.dfa.LongRangeSet.Companion.range
 import org.rust.lang.core.dfa.LongRangeSet.Companion.unknown
+import org.rust.lang.core.psi.ext.ArithmeticOp
 import org.rust.lang.core.psi.ext.BoolOp
 import org.rust.lang.core.psi.ext.ComparisonOp
 import org.rust.lang.core.psi.ext.EqualityOp
@@ -24,6 +25,7 @@ import kotlin.collections.set
 import kotlin.reflect.KClass
 import kotlin.reflect.full.isSubclassOf
 import kotlin.streams.asSequence
+import kotlin.streams.toList
 import kotlin.test.assertFails
 
 class LongRangeSetTest : RsTestBase() {
@@ -510,10 +512,11 @@ class LongRangeSetTest : RsTestBase() {
         checkSet("{${Long.MIN_VALUE}..99, 101..${Long.MAX_VALUE}}", point(100).fromRelation(EqualityOp.EXCLEQ))
     }
 
-    fun testAbs() {
+    fun `test abs`() {
         assertTrue(empty().abs.isEmpty)
         assertEquals(point(Long.MAX_VALUE), point(Long.MIN_VALUE + 1).abs)
         assertEquals(empty(overflow = true), point(Long.MIN_VALUE).abs)
+        assertEquals(empty(overflow = true), point(-128L, TyInteger.I8).abs)
         assertEquals(empty(overflow = true), point(Int.MIN_VALUE.toLong(), TyInteger.I32).abs)
         assertEquals(range(100, 200), range(100, 200).abs)
         assertEquals(range(0, 200), range(-1, 200).abs)
@@ -522,16 +525,19 @@ class LongRangeSetTest : RsTestBase() {
         assertEquals(range(0, Long.MAX_VALUE), all().abs)
         assertEquals(range(100, Int.MAX_VALUE.toLong(), TyInteger.I32), range(Int.MIN_VALUE.toLong(), -100, TyInteger.I32).abs)
         assertEquals(range(100, Int.MAX_VALUE + 1L), range(Int.MIN_VALUE.toLong(), -100).abs)
+        assertEquals(point(127, TyInteger.I8), range(-128, -127, TyInteger.I8).abs)
 
         val set = range(-900, 1000).subtract(range(-800, -600)).subtract(range(-300, 100)).subtract(range(500, 700))
         checkSet("{-900..-801, -599..-301, 101..499, 701..1000}", set)
         checkSet("{101..599, 701..1000}", set.abs)
     }
 
-    fun `test unaryMinus`() {
+    fun `test unary minus`() {
         assertTrue(empty().unaryMinus().isEmpty)
         assertEquals(point(Long.MAX_VALUE), -point(Long.MIN_VALUE + 1))
         assertEquals(empty(overflow = true), -point(Int.MIN_VALUE.toLong(), TyInteger.I32))
+        assertEquals(empty(overflow = true), -point(-128L, TyInteger.I8))
+        assertEquals(point(127, TyInteger.I8), -range(-128, -127, TyInteger.I8))
         assertEquals(point(Int.MAX_VALUE + 1L), -point(Int.MIN_VALUE.toLong()))
         assertEquals(range(-200, -100), -range(100, 200))
         assertEquals(range(-200, 1), -range(-1, 200))
@@ -868,6 +874,86 @@ class LongRangeSetTest : RsTestBase() {
         assertFails { checkHasAllTypes(listOf(empty(), point(42))) }
     }
 
+    fun `test add empty and unknown`() {
+
+
+        TyInteger.VALUES.forEach { type ->
+            val ranges = listOf(
+                point(42, type),
+                range(0, 100, type),
+                setFromString("0, 11, 42", type),
+                unknown()
+            )
+
+            checkMethodWithBooleanResult(
+                ranges + empty() to { other ->
+                    checkSet("{}", empty().plus(other))
+                    checkSet("{}", other.plus(empty()))
+                    true
+                }
+            )
+
+            checkMethodWithBooleanResult(
+                ignore = Empty::class,
+                pair = ranges to { other ->
+                    checkSet("{?}", unknown().plus(other))
+                    checkSet("{?}", other.plus(unknown()))
+                    true
+                }
+            )
+        }
+    }
+
+    fun `test add point to point`() {
+        val point = point(42)
+        checkAdd(point, point(42), "{84}")
+        checkAdd(point, point(-42), "{0}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val pointI8 = point(42, TyInteger.I8)
+        checkAdd(pointI8, point(85, TyInteger.I8), "{127}", filter)
+        checkAdd(pointI8, point(86, TyInteger.I8), "{!}", filter)
+        checkAdd(pointI8, point(120, TyInteger.I8), "{!}", filter)
+        checkAdd(pointI8, point(-128, TyInteger.I8), "{-86}", filter)
+
+        checkAdd(point(-1, TyInteger.I8), point(-128, TyInteger.I8), "{!}", filter)
+        checkAdd(point(-30, TyInteger.I8), point(-100, TyInteger.I8), "{!}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkAdd(point(Long.MAX_VALUE, it), point(55, it), "{?}")
+        }
+
+        checkAdd(point(Long.MIN_VALUE, TyInteger.I128), point(-5, TyInteger.I128), "{?}")
+    }
+
+    fun `test add point to range`() {
+        val point = point(42)
+        checkAdd(point, range(0, 50), "{42..92}")
+        checkAdd(point, range(-10, 5), "{32..47}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val pointI8 = point(42, TyInteger.I8)
+        checkAdd(pointI8, range(80, 127, TyInteger.I8), "{122..127}", filter)
+        checkAdd(pointI8, range(86, 100, TyInteger.I8), "{!}", filter)
+        checkAdd(pointI8, range(-128, 100, TyInteger.I8), "{-86..127}", filter)
+
+        checkAdd(point(-1, TyInteger.I8), range(-128, 10, TyInteger.I8), "{-128..9}", filter)
+        checkAdd(point(-30, TyInteger.I8), range(-110, -99, TyInteger.I8), "{!}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkAdd(point(Long.MAX_VALUE - 60, it), range(55, 70, it), "{?}")
+        }
+
+        checkAdd(point(Long.MIN_VALUE + 20, TyInteger.I128), range(-30, -10, TyInteger.I128), "{?}")
+    }
+
+    fun `test add range to range`() {
+        checkAdd(range(Long.MAX_VALUE - 10, Long.MAX_VALUE), range(1, 5), "{${Long.MAX_VALUE - 9}..${Long.MAX_VALUE}}")
+        checkAdd(range(Long.MIN_VALUE, Long.MIN_VALUE + 10), range(-1, 5), "{${Long.MIN_VALUE}..${Long.MIN_VALUE + 15}}")
+    }
+
+    private fun checkAdd(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) = checkBinOp(left, right, expected, ArithmeticOp.ADD, ::checkedAddOrNull, filter)
+
     private fun checkSet(expected: String, actual: LongRangeSet?) = assertEquals(expected, actual.toString())
 
     private fun checkPredicate(collection: Collection<LongRangeSet>, predicate: (LongRangeSet) -> Boolean): Unit = collection.filterNot(predicate).let {
@@ -907,7 +993,8 @@ class LongRangeSetTest : RsTestBase() {
         ignore: KClass<out LongRangeSet>,
         pair: Pair<Collection<LongRangeSet>, (LongRangeSet) -> Boolean>) =
         checkMethodWithBooleanResult(listOf(ignore), listOf(pair))
-//
+
+    //
 //    fun `test mod`() {
 //        assertEquals(empty(), empty().mod(all()))
 //        assertEquals(empty(TyInteger.I64), all().mod(empty(TyInteger.I64)))
@@ -1108,28 +1195,34 @@ class LongRangeSetTest : RsTestBase() {
 //        )
 //    }
 //
-//    private fun checkBinOp(
-//        op1: LongRangeSet,
-//        op2: LongRangeSet,
-//        result: LongRangeSet,
-//        filter: LongPredicate,
-//        operator: LongBinaryOperator,
-//        expected: String,
-//        sign: String
-//    ) {
-//        assertEquals(expected, result.toString())
-//        val errors = op1.stream
-//            .mapToObj<Stream<String>> { a ->
-//                op2.stream
-//                    .filter(filter)
-//                    .filter { b -> !result.contains(operator.applyAsLong(a, b)) }
-//                    .mapToObj { b -> a.toString() + " " + sign + " " + b + " = " + operator.applyAsLong(a, b) }
-//            }.flatMap { it }
-//            .collect(Collectors.joining("\n"))
-//        if (!errors.isEmpty()) {
-//            fail("Expected range $expected is not satisfied:\n$errors")
-//        }
-//    }
+    private fun checkBinOp(
+        left: LongRangeSet,
+        right: LongRangeSet,
+        expected: String,
+        operation: ArithmeticOp,
+        operator: (Long, Long) -> Long?,
+        filter: (Long) -> Boolean = { true }
+    ) {
+        val result = left.binOpFromToken(operation, right)
+        assertEquals(expected, result.toString())
+        val errors = left.stream
+            .mapToObj { a ->
+                right.stream
+                    .filter {
+                        val res = operator(a, it)
+                        res != null && filter(res)
+                    }
+                    .filter { !result.contains(operator(a, it)!!) }
+                    .mapToObj { b -> "$a ${operation.sign} $b = ${operator(a, b)}" }
+            }
+            .flatMap { it }
+            .toList()
+            .joinToString(separator = "\n")
+
+        if (!errors.isEmpty()) {
+            fail("Expected range $expected is not satisfied:\n$errors")
+        }
+    }
 }
 
 val numberRegex: Regex = Regex("-?[\\d]+")
