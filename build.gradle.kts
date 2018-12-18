@@ -30,9 +30,9 @@ val excludedJars = listOf(
 
 plugins {
     idea
-    kotlin("jvm") version "1.3.0"
+    kotlin("jvm") version "1.3.11"
     id("org.jetbrains.intellij") version "0.3.12"
-    id("org.jetbrains.grammarkit") version "2018.2.1"
+    id("org.jetbrains.grammarkit") version "2018.2.2"
     id("de.undercouch.download") version "3.4.3"
     id("net.saliman.properties") version "1.4.6"
 }
@@ -96,7 +96,15 @@ allprojects {
     }
 
     sourceSets {
-        getByName("main").java.srcDirs("src/gen")
+        getByName("main").apply {
+            java.srcDirs("src/gen")
+            kotlin.srcDirs("src/$platformVersion/main/kotlin")
+            resources.srcDirs("src/$platformVersion/main/resources")
+        }
+        getByName("test").apply {
+            kotlin.srcDirs("src/$platformVersion/test/kotlin")
+            resources.srcDirs("src/$platformVersion/test/resources")
+        }
     }
 
     afterEvaluate {
@@ -147,14 +155,6 @@ project(":") {
     }
 
     sourceSets {
-        getByName("main").apply {
-            kotlin.srcDirs("src/$platformVersion/main/kotlin")
-            resources.srcDirs("src/$platformVersion/main/resources")
-        }
-        getByName("test").apply {
-            kotlin.srcDirs("src/$platformVersion/test/kotlin")
-            resources.srcDirs("src/$platformVersion/test/resources")
-        }
         create("debugger") {
             kotlin.srcDirs("debugger/src/main/kotlin", "debugger/src/$platformVersion/main/kotlin")
             resources.srcDirs("debugger/src/main/resources", "debugger/src/$platformVersion/main/resources")

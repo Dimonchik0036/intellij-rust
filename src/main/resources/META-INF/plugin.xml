@@ -9,8 +9,8 @@
     ]]></description>
 
     <change-notes><![CDATA[
-        <a href="https://intellij-rust.github.io/2018/11/26/changelog-87.html">
-                 https://intellij-rust.github.io/2018/11/26/changelog-87.html
+        <a href="https://intellij-rust.github.io/2018/12/10/changelog-88.html">
+                 https://intellij-rust.github.io/2018/12/10/changelog-88.html
     ]]>
     </change-notes>
 
@@ -105,6 +105,11 @@
 
         <lang.findUsagesProvider language="Rust" implementationClass="org.rust.ide.search.RsFindUsagesProvider"/>
         <usageTypeProvider implementation="org.rust.ide.search.RsUsageTypeProvider"/>
+
+        <!-- Todos -->
+
+        <indexPatternBuilder implementation="org.rust.ide.todo.RsTodoIndexPatternBuilder"/>
+        <todoIndexer filetype="Rust" implementationClass="org.rust.ide.todo.RsTodoIndexer"/>
 
         <!-- Smart Enter Processor -->
 
