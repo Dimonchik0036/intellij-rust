@@ -178,6 +178,7 @@ sealed class LongRangeSet(val type: TyInteger) {
         ArithmeticOp.ADD, ArithmeticAssignmentOp.PLUSEQ -> plus(right)
         ArithmeticOp.SUB, ArithmeticAssignmentOp.MINUSEQ -> minus(right)
         ArithmeticOp.REM, ArithmeticAssignmentOp.REMEQ -> rem(right)
+        ArithmeticOp.DIV, ArithmeticAssignmentOp.DIVEQ -> div(right)
         ArithmeticOp.MUL, ArithmeticAssignmentOp.MULEQ -> times(right)
         is BoolOp -> {
             val (l, r) = compare(op, right)
@@ -279,6 +280,45 @@ sealed class LongRangeSet(val type: TyInteger) {
         value <= minPossible -> minPossible
         value >= maxPossible -> maxPossible
         else -> value
+    }
+
+    /**
+     * Returns a range which represents all the possible values after applying `x / y` operation for
+     * all `x` from this set and for all `y` from the divisor set. The resulting set may contain
+     * some more values. Division by zero yields an empty set of possible results.
+     *
+     * @param divisor other division results do not depend on the resulting type.
+     * @return a new range
+     */
+    operator fun div(divisor: LongRangeSet): LongRangeSet {
+        if (divisor.isEmpty || divisor.isZero) return Empty.DivisionByZero
+        if (isEmpty) return empty(divisor)
+        if (isZero) return this
+        if (isUnknown || divisor.isUnknown) return unknown()
+
+        val left = splitAtZero(asRanges)
+        val right = divisor.without(0).asRanges
+
+        var result = empty()
+        for (i in left.indices step 2) {
+            for (j in right.indices step 2) {
+                result = result.unite(divide(left[i], left[i + 1], right[j], right[j + 1]))
+            }
+        }
+        return result
+    }
+
+    private fun divide(dividendMin: Long, dividendMax: Long, divisorMin: Long, divisorMax: Long): LongRangeSet = when {
+        dividendMin >= 0 -> if (divisorMin > 0) range(dividendMin / divisorMax, dividendMax / divisorMin)
+        else range(dividendMax / divisorMax, dividendMin / divisorMin)
+        divisorMin > 0 -> range(dividendMin / divisorMin, dividendMax / divisorMax)
+        else -> if (dividendMin == minPossible && divisorMax == -1L) {
+            if (divisorMin == -1L) empty()
+            else range(dividendMin / divisorMin, dividendMin / (divisorMax - 1)).unite(
+                if (dividendMax == minPossible) empty()
+                else range(dividendMax / divisorMin, (dividendMin + 1) / divisorMax)
+            )
+        } else range(dividendMax / divisorMin, dividendMin / divisorMax)
     }
 
     /**
@@ -1023,6 +1063,12 @@ fun checkedMultiplyOrNull(a: Long, b: Long): Long? = try {
 
 fun checkedModOrNull(a: Long, b: Long): Long? = try {
     a % b
+} catch (e: ArithmeticException) {
+    null
+}
+
+fun checkedDivOrNull(a: Long, b: Long): Long? = try {
+    a / b
 } catch (e: ArithmeticException) {
     null
 }

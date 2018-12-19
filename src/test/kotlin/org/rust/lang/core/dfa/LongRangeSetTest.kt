@@ -1248,7 +1248,6 @@ class LongRangeSetTest : RsTestBase() {
         }
     }
 
-
     fun `test mod point to point`() {
         val point = point(42)
         checkMod(point, point(2), "{0}")
@@ -1367,6 +1366,128 @@ class LongRangeSetTest : RsTestBase() {
         checkMod(setFromString("${Long.MIN_VALUE + 20}..${Long.MIN_VALUE + 30}, 0", TyInteger.I128), setFromString("-33..-10, 0", TyInteger.I128), "{-32..0}")
     }
 
+    fun `test div by zero`() {
+        TyInteger.VALUES.forEach { type ->
+            val ranges = listOf(
+                point(42, type),
+                range(0, 100, type),
+                setFromString("0, 11, 42", type),
+                unknown(),
+                empty()
+            )
+
+            val zeroPoint = point(0, type)
+            checkMethodWithBooleanResult(
+                ranges to { other ->
+                    checkDiv(other, zeroPoint, "{z}")
+                    true
+                }
+            )
+        }
+    }
+
+    fun `test div point to point`() {
+        val point = point(42)
+        checkDiv(point, point(2), "{21}")
+        checkDiv(point, point(-2), "{-21}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val pointI8 = point(42, TyInteger.I8)
+        checkDiv(pointI8, point(7, TyInteger.I8), "{6}", filter)
+        checkDiv(pointI8, point(13, TyInteger.I8), "{3}", filter)
+        checkDiv(pointI8, point(8, TyInteger.I8), "{5}", filter)
+
+        checkDiv(point(-1, TyInteger.I8), point(-128, TyInteger.I8), "{0}", filter)
+        checkDiv(point(-30, TyInteger.I8), point(-100, TyInteger.I8), "{0}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkDiv(point(Long.MAX_VALUE, it), point(55, it), "{167697673397359560}")
+        }
+
+        checkDiv(point(Long.MIN_VALUE, TyInteger.I128), point(5, TyInteger.I128), "{-1844674407370955161}")
+    }
+
+    fun `test div point to range`() {
+        val point = point(42)
+        checkDiv(point, range(0, 4), "{10..42}")
+        checkDiv(point, range(-1, 5), "{-42, 8..42}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val pointI8 = point(9, TyInteger.I8)
+        checkDiv(pointI8, range(3, 9, TyInteger.I8), "{1..3}", filter)
+        checkDiv(pointI8, range(15, 20, TyInteger.I8), "{0}", filter)
+        checkDiv(pointI8, range(-8, 6, TyInteger.I8), "{-9..-1, 1..9}", filter)
+
+        checkDiv(point(-2, TyInteger.I8), range(-64, 10, TyInteger.I8), "{-2..2}", filter)
+        checkDiv(point(-30, TyInteger.I8), range(-110, -99, TyInteger.I8), "{0}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkDiv(point(Long.MAX_VALUE - 60, it), range(55, 70, it), "{131762457669353939..167697673397359559}")
+        }
+
+        checkDiv(point(Long.MIN_VALUE + 20, TyInteger.I128), range(-4, 2, TyInteger.I128), "{-9223372036854775788..-4611686018427387894, 2305843009213693947..9223372036854775788}")
+    }
+
+    fun `test div point to set`() {
+        val point = point(3)
+        checkDiv(point, setFromString("-5, 11..22"), "{0}")
+        checkDiv(point, setFromString("1, 11..22, 33..55"), "{0, 3}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val pointI8 = point(5, TyInteger.I8)
+        checkDiv(pointI8, setFromString("-5, 11..100", TyInteger.I8), "{-1, 0}", filter)
+        checkDiv(pointI8, setFromString("89, 100..105", TyInteger.I8), "{0}", filter)
+        checkDiv(pointI8, setFromString("-25, 6..8", TyInteger.I8), "{0}", filter)
+
+        checkDiv(point(-1, TyInteger.I8), setFromString("-128, -100..1", TyInteger.I8), "{-1..1}", filter)
+        checkDiv(point(-30, TyInteger.I8), setFromString("-128, -105..-100", TyInteger.I8), "{0}", filter)
+
+        checkDiv(point(Long.MIN_VALUE + 20, TyInteger.I128), setFromString("-33..-10, 2", TyInteger.I128), "{-4611686018427387894, 279496122328932599..922337203685477578}")
+    }
+
+    fun `test div range to range`() {
+        checkDiv(range(Long.MAX_VALUE - 10, Long.MAX_VALUE), range(200, 500), "{18446744073709551..46116860184273879}")
+        checkDiv(range(Long.MAX_VALUE - 100, Long.MAX_VALUE), range(5436, 8223), "{1121655361407609..1696720389414050}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        checkDiv(range(-128, 127, TyInteger.I8), range(-10, 10, TyInteger.I8), "{-128..127}", filter)
+        checkDiv(range(-100, 0, TyInteger.I8), range(100, 120, TyInteger.I8), "{-1, 0}", filter)
+
+        checkDiv(range(Long.MIN_VALUE + 20, Long.MIN_VALUE + 30, TyInteger.I128), range(-1, 0, TyInteger.I128), "{9223372036854775778..9223372036854775788}")
+    }
+
+    fun `test div range to set`() {
+        checkDiv(range(10, 20), setFromString("-5, 11..22"), "{-4..-2, 0, 1}")
+        checkDiv(range(-77, 2), setFromString("1, 11..22, 33..55"), "{-77..2}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val rangeI8 = range(8, 100, TyInteger.I8)
+        checkDiv(rangeI8, setFromString("-5, 11..100", TyInteger.I8), "{-20..9}", filter)
+        checkDiv(rangeI8, setFromString("89, 100..105", TyInteger.I8), "{0, 1}", filter)
+        checkDiv(rangeI8, setFromString("-128, 102..105", TyInteger.I8), "{0}", filter)
+
+        checkDiv(range(-1, 5, TyInteger.I8), setFromString("-128, -100..1", TyInteger.I8), "{-5..5}", filter)
+        checkDiv(range(-35, -29, TyInteger.I8), setFromString("-128, -105..-100", TyInteger.I8), "{0}", filter)
+
+        checkDiv(range(Long.MIN_VALUE + 20, Long.MIN_VALUE + 30, TyInteger.I128), setFromString("-33..-10, 0", TyInteger.I128), "{279496122328932599..922337203685477578}")
+    }
+
+    fun `test div set to set`() {
+        checkDiv(setFromString("-5..0, 23..44"), setFromString("-5, 11..22"), "{-8..-4, 0..4}")
+        checkDiv(setFromString("-5, 11..22"), setFromString("1, 11..22, 33..55"), "{-5, 0..2, 11..22}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val setI8 = setFromString("-5, 22, 30..40", TyInteger.I8)
+        checkDiv(setI8, setFromString("-5, 11..100", TyInteger.I8), "{-8..-6, -4, 0..3}", filter)
+        checkDiv(setI8, setFromString("3, 100..105", TyInteger.I8), "{-1, 0, 7, 10..13}", filter)
+        checkDiv(setI8, setFromString("-128, 127", TyInteger.I8), "{0}", filter)
+
+        checkDiv(range(-1, 5, TyInteger.I8), setFromString("-128, -100..1, 3, 4", TyInteger.I8), "{-5..5}", filter)
+        checkDiv(setFromString("-128..-127, 5..127", TyInteger.I8), setFromString("-128..-6, 126..127", TyInteger.I8), "{-21..21}", filter)
+
+        checkDiv(setFromString("${Long.MIN_VALUE + 20}..${Long.MIN_VALUE + 30}, 0", TyInteger.I128), setFromString("-33..-10, 0", TyInteger.I128), "{0, 279496122328932599..922337203685477578}")
+    }
+
     private fun checkAdd(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) {
         checkBinOp(left, right, expected, ArithmeticOp.ADD, ::checkedAddOrNull, filter)
         checkBinOp(right, left, expected, ArithmeticOp.ADD, ::checkedAddOrNull, filter)
@@ -1379,6 +1500,10 @@ class LongRangeSetTest : RsTestBase() {
 
     private fun checkMod(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) {
         checkBinOp(left, right, expected, ArithmeticOp.REM, ::checkedModOrNull, filter)
+    }
+
+    private fun checkDiv(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) {
+        checkBinOp(left, right, expected, ArithmeticOp.DIV, ::checkedDivOrNull, filter)
     }
 
     private fun checkSub(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) = checkBinOp(left, right, expected, ArithmeticOp.SUB, ::checkedSubOrNull, filter)
