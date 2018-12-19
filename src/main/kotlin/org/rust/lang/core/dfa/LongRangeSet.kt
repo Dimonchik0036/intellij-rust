@@ -388,7 +388,7 @@ sealed class Empty : LongRangeSet(TyInteger.I64) {
 
     override operator fun plus(other: LongRangeSet): LongRangeSet = empty(other)
 
-    override operator fun rem(divisor: LongRangeSet): LongRangeSet = this
+    override operator fun rem(divisor: LongRangeSet): LongRangeSet = if (divisor.isEmpty || divisor.isZero) Empty.DivisionByZero else this
 
     override val stream: LongStream get() = LongStream.empty()
 
@@ -666,7 +666,6 @@ class Range(val from: Long, val to: Long, type: TyInteger) : LongRangeSet(type) 
 
     override operator fun rem(divisor: LongRangeSet): LongRangeSet {
         if (divisor.isUnknown) return divisor
-        // TODO divide by zero is overflow or empty?
         if (divisor.isEmpty || divisor.isZero) return Empty.DivisionByZero
         if (divisor is Point && divisor.value == minPossible) {
             return if (contains(minPossible)) subtract(divisor).unite(point(0)) else this
@@ -676,7 +675,7 @@ class Range(val from: Long, val to: Long, type: TyInteger) : LongRangeSet(type) 
         val max = divisor.max
         val maxDivisor = max(min.absoluteValue, max.absoluteValue)
         val minDivisor = if (min > 0) min else if (max < 0) max.absoluteValue else 0
-        return if (!intersects(range(minPossible, -minDivisor)) && !intersects(range(minDivisor, maxPossible))) this
+        return if (minPossible <= -minDivisor && !intersects(range(minPossible, -minDivisor)) && !intersects(range(minDivisor, maxPossible))) this
         else possibleMod().intersect(range(-maxDivisor + 1, maxDivisor - 1))
     }
 
@@ -1018,6 +1017,12 @@ fun checkedSubOrNull(a: Long, b: Long): Long? = try {
 
 fun checkedMultiplyOrNull(a: Long, b: Long): Long? = try {
     checkedMultiply(a, b)
+} catch (e: ArithmeticException) {
+    null
+}
+
+fun checkedModOrNull(a: Long, b: Long): Long? = try {
+    a % b
 } catch (e: ArithmeticException) {
     null
 }

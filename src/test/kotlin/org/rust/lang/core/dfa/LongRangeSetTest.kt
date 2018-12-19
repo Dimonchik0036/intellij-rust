@@ -1228,6 +1228,145 @@ class LongRangeSetTest : RsTestBase() {
         checkMultiply(setFromString("${Long.MIN_VALUE + 20}..${Long.MIN_VALUE + 30}, 0", TyInteger.I128), setFromString("-33..-10, 0", TyInteger.I128), "{?}")
     }
 
+    fun `test mod by zero`() {
+        TyInteger.VALUES.forEach { type ->
+            val ranges = listOf(
+                point(42, type),
+                range(0, 100, type),
+                setFromString("0, 11, 42", type),
+                unknown(),
+                empty()
+            )
+
+            val zeroPoint = point(0, type)
+            checkMethodWithBooleanResult(
+                ranges to { other ->
+                    checkMod(other, zeroPoint, "{z}")
+                    true
+                }
+            )
+        }
+    }
+
+
+    fun `test mod point to point`() {
+        val point = point(42)
+        checkMod(point, point(2), "{0}")
+        checkMod(point, point(-2), "{0}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val pointI8 = point(42, TyInteger.I8)
+        checkMod(pointI8, point(7, TyInteger.I8), "{0}", filter)
+        checkMod(pointI8, point(13, TyInteger.I8), "{3}", filter)
+        checkMod(pointI8, point(8, TyInteger.I8), "{2}", filter)
+
+        checkMod(point(-1, TyInteger.I8), point(-128, TyInteger.I8), "{-1}", filter)
+        checkMod(point(-30, TyInteger.I8), point(-100, TyInteger.I8), "{-30}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkMod(point(Long.MAX_VALUE, it), point(55, it), "{7}")
+        }
+
+        checkMod(point(Long.MIN_VALUE, TyInteger.I128), point(5, TyInteger.I128), "{-3}")
+    }
+
+    fun `test mod point to range`() {
+        val point = point(42)
+        checkMod(point, range(0, 4), "{0..3}")
+        checkMod(point, range(-1, 5), "{0..4}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val pointI8 = point(9, TyInteger.I8)
+        checkMod(pointI8, range(3, 9, TyInteger.I8), "{0..8}", filter)
+        checkMod(pointI8, range(15, 20, TyInteger.I8), "{9}", filter)
+        checkMod(pointI8, range(-8, 6, TyInteger.I8), "{0..7}", filter)
+
+        checkMod(point(-2, TyInteger.I8), range(-64, 10, TyInteger.I8), "{-2..0}", filter)
+        checkMod(point(-30, TyInteger.I8), range(-110, -99, TyInteger.I8), "{-30}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkMod(point(Long.MAX_VALUE - 60, it), range(55, 70, it), "{0..69}")
+        }
+
+        checkMod(point(Long.MIN_VALUE + 20, TyInteger.I128), range(-4, 2, TyInteger.I128), "{-3..0}")
+    }
+
+    fun `test mod point to set`() {
+        val point = point(3)
+        checkMod(point, setFromString("-5, 11..22"), "{3}")
+        checkMod(point, setFromString("1, 11..22, 33..55"), "{0..3}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val pointI8 = point(5, TyInteger.I8)
+        checkMod(pointI8, setFromString("-5, 11..100", TyInteger.I8), "{0..5}", filter)
+        checkMod(pointI8, setFromString("89, 100..105", TyInteger.I8), "{5}", filter)
+        checkMod(pointI8, setFromString("-25, 6..8", TyInteger.I8), "{5}", filter)
+
+        checkMod(point(-1, TyInteger.I8), setFromString("-128, -100..1", TyInteger.I8), "{-1, 0}", filter)
+        checkMod(point(-30, TyInteger.I8), setFromString("-128, -105..-100", TyInteger.I8), "{-30}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkMod(point(Long.MAX_VALUE - 60, it), setFromString("-128, 100..150", it), "{0..149}")
+        }
+
+        checkMod(point(Long.MIN_VALUE + 20, TyInteger.I128), setFromString("-33..-10, 2", TyInteger.I128), "{-32..0}")
+    }
+
+    fun `test mod range to range`() {
+        checkMod(range(Long.MAX_VALUE - 10, Long.MAX_VALUE), range(2, 5), "{0..4}")
+        checkMod(range(Long.MAX_VALUE - 100, Long.MAX_VALUE), range(5, 8), "{0..7}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        checkMod(range(-128, 127, TyInteger.I8), range(-10, 10, TyInteger.I8), "{-9..9}", filter)
+        checkMod(range(-100, 0, TyInteger.I8), range(100, 120, TyInteger.I8), "{-100..0}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkMod(range(Long.MAX_VALUE - 60, Long.MAX_VALUE - 50, it), range(10, 66, it), "{0..65}")
+        }
+
+        checkMod(range(Long.MIN_VALUE + 20, Long.MIN_VALUE + 30, TyInteger.I128), range(-1, 0, TyInteger.I128), "{0}")
+    }
+
+    fun `test mod range to set`() {
+        checkMod(range(10, 20), setFromString("-5, 11..22"), "{0..20}")
+        checkMod(range(-77, 2), setFromString("1, 11..22, 33..55"), "{-54..2}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val rangeI8 = range(8, 100, TyInteger.I8)
+        checkMod(rangeI8, setFromString("-5, 11..100", TyInteger.I8), "{0..99}", filter)
+        checkMod(rangeI8, setFromString("89, 100..105", TyInteger.I8), "{0..100}", filter)
+        checkMod(rangeI8, setFromString("-128, 102..105", TyInteger.I8), "{0..100}", filter)
+
+        checkMod(range(-1, 5, TyInteger.I8), setFromString("-128, -100..1", TyInteger.I8), "{-1..5}", filter)
+        checkMod(range(-35, -29, TyInteger.I8), setFromString("-128, -105..-100", TyInteger.I8), "{-35..0}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkMod(range(Long.MAX_VALUE - 60, Long.MAX_VALUE - 50, it), setFromString("-128, 100..150", it), "{0..149}")
+        }
+
+        checkMod(range(Long.MIN_VALUE + 20, Long.MIN_VALUE + 30, TyInteger.I128), setFromString("-33..-10, 0", TyInteger.I128), "{-32..0}")
+    }
+
+    fun `test mod set to set`() {
+        checkMod(setFromString("-5..0, 23..44"), setFromString("-5, 11..22"), "{-5..21}")
+        checkMod(setFromString("-5, 11..22"), setFromString("1, 11..22, 33..55"), "{-5..22}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val setI8 = setFromString("-5, 22, 30..40", TyInteger.I8)
+        checkMod(setI8, setFromString("-5, 11..100", TyInteger.I8), "{-5..40}", filter)
+        checkMod(setI8, setFromString("3, 100..105", TyInteger.I8), "{-5..40}", filter)
+        checkMod(setI8, setFromString("-128, 127", TyInteger.I8), "{-5, 0..40}", filter)
+
+        checkMod(range(-1, 5, TyInteger.I8), setFromString("-128, -100..1, 3, 4", TyInteger.I8), "{-1..5}", filter)
+        checkMod(setFromString("-128..-127, 5..127", TyInteger.I8), setFromString("-128..-6, 126..127", TyInteger.I8), "{-128..127}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkMod(setFromString("${Long.MAX_VALUE - 60}..${Long.MAX_VALUE - 50}, 0", it), setFromString("-128, 100..150", it), "{0..149}")
+        }
+
+        checkMod(setFromString("${Long.MIN_VALUE + 20}..${Long.MIN_VALUE + 30}, 0", TyInteger.I128), setFromString("-33..-10, 0", TyInteger.I128), "{-32..0}")
+    }
+
     private fun checkAdd(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) {
         checkBinOp(left, right, expected, ArithmeticOp.ADD, ::checkedAddOrNull, filter)
         checkBinOp(right, left, expected, ArithmeticOp.ADD, ::checkedAddOrNull, filter)
@@ -1236,6 +1375,10 @@ class LongRangeSetTest : RsTestBase() {
     private fun checkMultiply(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) {
         checkBinOp(left, right, expected, ArithmeticOp.MUL, ::checkedMultiplyOrNull, filter)
         checkBinOp(right, left, expected, ArithmeticOp.MUL, ::checkedMultiplyOrNull, filter)
+    }
+
+    private fun checkMod(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) {
+        checkBinOp(left, right, expected, ArithmeticOp.REM, ::checkedModOrNull, filter)
     }
 
     private fun checkSub(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) = checkBinOp(left, right, expected, ArithmeticOp.SUB, ::checkedSubOrNull, filter)
