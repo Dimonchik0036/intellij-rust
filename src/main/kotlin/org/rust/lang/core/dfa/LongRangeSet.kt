@@ -5,8 +5,7 @@
 
 package org.rust.lang.core.dfa
 
-import com.google.common.math.LongMath.checkedAdd
-import com.google.common.math.LongMath.checkedMultiply
+import com.google.common.math.LongMath.*
 import org.rust.lang.core.dfa.LongRangeSet.Companion.empty
 import org.rust.lang.core.dfa.LongRangeSet.Companion.point
 import org.rust.lang.core.dfa.LongRangeSet.Companion.unknown
@@ -650,7 +649,8 @@ class Range(val from: Long, val to: Long, type: TyInteger) : LongRangeSet(type) 
         val from = checkedAddOrNull(from1, from2)
         val to = checkedAddOrNull(to1, to2)
         return when {
-            from == null || to == null -> if (to == null && isLargeOnTop || from == null && isLargeBelow) unknown() else range(from ?: minPossible, to ?: maxPossible)
+            from == null || to == null -> if (to == null && isLargeOnTop || from == null && isLargeBelow) unknown() else range(from
+                ?: minPossible, to ?: maxPossible)
             from > maxPossible || to < minPossible -> empty(true)
             else -> range(overflowCorrection(from), overflowCorrection(to))
         }
@@ -996,6 +996,12 @@ private val ComparisonOp.mirror: ComparisonOp
 
 fun checkedAddOrNull(a: Long, b: Long): Long? = try {
     checkedAdd(a, b)
+} catch (e: ArithmeticException) {
+    null
+}
+
+fun checkedSubOrNull(a: Long, b: Long): Long? = try {
+    checkedSubtract(a, b)
 } catch (e: ArithmeticException) {
     null
 }

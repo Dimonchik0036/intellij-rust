@@ -1023,10 +1023,30 @@ class LongRangeSetTest : RsTestBase() {
         checkAdd(setFromString("${Long.MIN_VALUE + 20}..${Long.MIN_VALUE + 30}, 0", TyInteger.I128), setFromString("-33..-10, 0", TyInteger.I128), "{?}")
     }
 
+    fun `test sub`() {
+        checkSub(range(10, 15, TyInteger.U8), point(14, TyInteger.U8), "{0, 1}") { it in 0L..255L }
+
+        TyInteger.VALUES.filter { it.name.startsWith("i") }.forEach { type ->
+            checkSub(range(10, 15, type), point(16, type), "{-6..-1}") { it in type.MIN_POSSIBLE..type.MAX_POSSIBLE }
+        }
+
+        TyInteger.VALUES.filter { it.name.startsWith("u") }.forEach { type ->
+            checkSub(range(10, 15, type), point(16, type), "{!}") { it >= 0 }
+        }
+
+        (TyInteger.VALUES - TyInteger.I128).forEach { type ->
+            checkSub(point(type.MIN_POSSIBLE, type), point(1, type), "{!}") { it in type.MIN_POSSIBLE..type.MAX_POSSIBLE }
+        }
+
+        checkSub(point(TyInteger.I128.MIN_POSSIBLE, TyInteger.I128), point(1, TyInteger.I128), "{?}")
+    }
+
     private fun checkAdd(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) {
         checkBinOp(left, right, expected, ArithmeticOp.ADD, ::checkedAddOrNull, filter)
         checkBinOp(right, left, expected, ArithmeticOp.ADD, ::checkedAddOrNull, filter)
     }
+
+    private fun checkSub(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) = checkBinOp(left, right, expected, ArithmeticOp.SUB, ::checkedSubOrNull, filter)
 
     private fun checkSet(expected: String, actual: LongRangeSet?) = assertEquals(expected, actual.toString())
 
