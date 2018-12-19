@@ -49,7 +49,7 @@ sealed class LongRangeSet(val type: TyInteger) {
     /**
      * @return true if a division by zero error occurred
      */
-    val hasDivisionByZero: Boolean get() = this === Empty.DivideByZero
+    val hasDivisionByZero: Boolean get() = this === Empty.DivisionByZero
 
     /**
      * @return true if set is empty
@@ -405,7 +405,7 @@ sealed class Empty : LongRangeSet(TyInteger.I64) {
         override fun toString(): String = "{!}"
     }
 
-    object DivideByZero : Empty() {
+    object DivisionByZero : Empty() {
         override fun toString(): String = "{z}"
     }
 
@@ -435,7 +435,7 @@ object Unknown : LongRangeSet(TyInteger.I64) {
 
     override operator fun plus(other: LongRangeSet): LongRangeSet = if (other.isEmpty) other else this
 
-    override operator fun rem(divisor: LongRangeSet): LongRangeSet = if (divisor.isEmpty || divisor.isZero) Empty.DivideByZero else this
+    override operator fun rem(divisor: LongRangeSet): LongRangeSet = if (divisor.isEmpty || divisor.isZero) Empty.DivisionByZero else this
 
     override val stream: LongStream get() = throw UnsupportedOperationException()
 
@@ -494,7 +494,7 @@ class Point(val value: Long, type: TyInteger) : LongRangeSet(type) {
 
     override operator fun rem(divisor: LongRangeSet): LongRangeSet {
         if (divisor.isUnknown) return divisor
-        if (divisor.isEmpty || divisor.isZero) return Empty.DivideByZero
+        if (divisor.isEmpty || divisor.isZero) return Empty.DivisionByZero
         if (value == 0L) return this
         if (divisor is Point) {
             return point(value % divisor.value)
@@ -668,7 +668,7 @@ class Range(val from: Long, val to: Long, type: TyInteger) : LongRangeSet(type) 
     override operator fun rem(divisor: LongRangeSet): LongRangeSet {
         if (divisor.isUnknown) return divisor
         // TODO divide by zero is overflow or empty?
-        if (divisor.isEmpty || divisor.isZero) return Empty.DivideByZero
+        if (divisor.isEmpty || divisor.isZero) return Empty.DivisionByZero
         if (divisor is Point && divisor.value == minPossible) {
             return if (contains(minPossible)) subtract(divisor).unite(point(0)) else this
         }
@@ -879,7 +879,7 @@ class RangeSet(val ranges: LongArray, type: TyInteger) : LongRangeSet(type) {
     }
 
     override operator fun rem(divisor: LongRangeSet): LongRangeSet {
-        if (divisor.isEmpty || divisor.isZero) return Empty.DivideByZero
+        if (divisor.isEmpty || divisor.isZero) return Empty.DivisionByZero
         if (divisor.isUnknown) return divisor
         var result = empty()
         for (i in ranges.indices step 2) {

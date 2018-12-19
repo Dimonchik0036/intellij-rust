@@ -33,6 +33,7 @@ class LongRangeSetTest : RsTestBase() {
         checkSet("{}", setFromString(""))
         checkSet("{!}", setFromString("!"))
         checkSet("{?}", setFromString("?"))
+        checkSet("{z}", setFromString("z"))
         checkSet("{42}", setFromString("42"))
         checkSet("{42}", setFromString("42, 42"))
         checkSet("{42}", setFromString("42..42"))
@@ -48,6 +49,7 @@ class LongRangeSetTest : RsTestBase() {
     fun `test to string`() {
         checkSet("{}", setFromString(""))
         checkSet("{!}", empty(true))
+        checkSet("{z}", Empty.DivisionByZero)
         TyInteger.VALUES.forEach {
             checkSet("{10}", point(10, it))
             checkSet("{10}", range(10, 10, it))
@@ -1323,6 +1325,7 @@ private fun setFromString(set: String, type: TyInteger = TyInteger.I64): LongRan
     "" -> empty()
     "!" -> empty(true)
     "?" -> unknown()
+    "z" -> Empty.DivisionByZero
     else -> {
         set.splitToSequence(',')
             .map { string ->
