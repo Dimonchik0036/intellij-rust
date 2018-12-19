@@ -887,8 +887,7 @@ class LongRangeSetTest : RsTestBase() {
 
             checkMethodWithBooleanResult(
                 ranges + empty() to { other ->
-                    checkSet("{}", empty() + other)
-                    checkSet("{}", other + empty())
+                    checkAdd(empty(), other, "{}")
                     true
                 }
             )
@@ -896,8 +895,7 @@ class LongRangeSetTest : RsTestBase() {
             checkMethodWithBooleanResult(
                 ignore = Empty::class,
                 pair = ranges to { other ->
-                    checkSet("{?}", unknown() + other)
-                    checkSet("{?}", other + unknown())
+                    checkAdd(unknown(), other, "{?}")
                     true
                 }
             )
@@ -1052,8 +1050,7 @@ class LongRangeSetTest : RsTestBase() {
 
             checkMethodWithBooleanResult(
                 ranges + empty() to { other ->
-                    checkSet("{}", empty() * other)
-                    checkSet("{}", other * empty())
+                    checkMultiply(empty(), other, "{}")
                     true
                 }
             )
@@ -1061,8 +1058,7 @@ class LongRangeSetTest : RsTestBase() {
             checkMethodWithBooleanResult(
                 ignore = Empty::class,
                 pair = ranges to { other ->
-                    checkSet("{?}", unknown() * other)
-                    checkSet("{?}", other * unknown())
+                    checkMultiply(unknown(), other, "{?}")
                     true
                 }
             )
@@ -1074,19 +1070,18 @@ class LongRangeSetTest : RsTestBase() {
             val ranges = listOf(
                 point(42, type),
                 range(0, 100, type),
-                setFromString("0, 11, 42", type)
+                setFromString("0, 11, 42", type),
+                unknown()
             )
 
             val zeroPoint = point(0, type)
             checkMethodWithBooleanResult(
-                ignore = listOf(Empty::class, Unknown::class),
+                ignore = Empty::class,
                 pair = ranges to { other ->
                     checkMultiply(zeroPoint, other, "{0}")
                     true
                 }
             )
-            checkSet("{0}", unknown() * zeroPoint)
-            checkSet("{0}", zeroPoint * unknown())
         }
     }
 
@@ -1353,6 +1348,8 @@ class LongRangeSetTest : RsTestBase() {
     ) {
         val result = left.binOpFromToken(operation, right)
         assertEquals(expected, result.toString())
+        if (left.isUnknown || right.isUnknown) return
+
         val errors = left.stream
             .mapToObj { a ->
                 right.stream
