@@ -1085,6 +1085,149 @@ class LongRangeSetTest : RsTestBase() {
         }
     }
 
+    fun `test multiply by one and minus one`() {
+        TyInteger.VALUES.forEach { type ->
+            val ranges = listOf(
+                point(42, type),
+                range(0, 100, type),
+                setFromString("0, 11, 42", type),
+                unknown(),
+                empty()
+            )
+
+            val onePoint = point(1, type)
+            val minusOnePoint = point(-1, type)
+            checkMethodWithBooleanResult(
+                ranges to { other ->
+                    checkMultiply(onePoint, other, other.toString())
+                    if (type.name.startsWith("i")) {
+                        checkMultiply(minusOnePoint, other, other.unaryMinus().toString())
+                    }
+                    true
+                }
+            )
+        }
+    }
+
+    fun `test multiply point to point`() {
+        val point = point(42)
+        checkMultiply(point, point(2), "{84}")
+        checkMultiply(point, point(-2), "{-84}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val pointI8 = point(42, TyInteger.I8)
+        checkMultiply(pointI8, point(2, TyInteger.I8), "{84}", filter)
+        checkMultiply(pointI8, point(4, TyInteger.I8), "{!}", filter)
+        checkMultiply(pointI8, point(-4, TyInteger.I8), "{!}", filter)
+
+        checkMultiply(point(-1, TyInteger.I8), point(-128, TyInteger.I8), "{!}", filter)
+        checkMultiply(point(-30, TyInteger.I8), point(-100, TyInteger.I8), "{!}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkMultiply(point(Long.MAX_VALUE, it), point(55, it), "{?}")
+        }
+
+        checkMultiply(point(Long.MIN_VALUE, TyInteger.I128), point(5, TyInteger.I128), "{?}")
+    }
+
+    fun `test multiply point to range`() {
+        val point = point(42)
+        checkMultiply(point, range(0, 4), "{0, 42..168}")
+        checkMultiply(point, range(-1, 5), "{-42, 0, 42..210}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val pointI8 = point(9, TyInteger.I8)
+        checkMultiply(pointI8, range(3, 9, TyInteger.I8), "{27..81}", filter)
+        checkMultiply(pointI8, range(15, 20, TyInteger.I8), "{!}", filter)
+        checkMultiply(pointI8, range(-8, 6, TyInteger.I8), "{-72..-9, 0, 9..54}", filter)
+
+        checkMultiply(point(-2, TyInteger.I8), range(-64, 10, TyInteger.I8), "{-20..-2, 0, 2..127}", filter)
+        checkMultiply(point(-30, TyInteger.I8), range(-110, -99, TyInteger.I8), "{!}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkMultiply(point(Long.MAX_VALUE - 60, it), range(55, 70, it), "{?}")
+        }
+
+        checkMultiply(point(Long.MIN_VALUE + 20, TyInteger.I128), range(-4, 2, TyInteger.I128), "{?}")
+    }
+
+    fun `test multiply point to set`() {
+        val point = point(3)
+        checkMultiply(point, setFromString("-5, 11..22"), "{-15, 33..66}")
+        checkMultiply(point, setFromString("1, 11..22, 33..55"), "{3, 33..66, 99..165}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val pointI8 = point(5, TyInteger.I8)
+        checkMultiply(pointI8, setFromString("-5, 11..100", TyInteger.I8), "{-25, 55..127}", filter)
+        checkMultiply(pointI8, setFromString("89, 100..105", TyInteger.I8), "{!}", filter)
+        checkMultiply(pointI8, setFromString("-25, 6..8", TyInteger.I8), "{-125, 30..40}", filter)
+
+        checkMultiply(point(-1, TyInteger.I8), setFromString("-128, -100..1", TyInteger.I8), "{-1..100}", filter)
+        checkMultiply(point(-30, TyInteger.I8), setFromString("-128, -105..-100", TyInteger.I8), "{!}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkMultiply(point(Long.MAX_VALUE - 60, it), setFromString("-128, 100..150", it), "{?}")
+        }
+
+        checkMultiply(point(Long.MIN_VALUE + 20, TyInteger.I128), setFromString("-33..-10, 2", TyInteger.I128), "{?}")
+    }
+
+    fun `test multiply range to range`() {
+        //TODO
+//        checkMultiply(range(Long.MAX_VALUE - 10, Long.MAX_VALUE), range(2, 5), "{!}")
+//        checkMultiply(range(Long.MAX_VALUE/5, Long.MAX_VALUE), range(5, 8), "{${Long.MAX_VALUE-1}..${Long.MAX_VALUE}}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        checkMultiply(range(-128, 127, TyInteger.I8), range(-10, 10, TyInteger.I8), "{-128..127}", filter)
+        checkMultiply(range(-100, 0, TyInteger.I8), range(100, 120, TyInteger.I8), "{-128..-100, 0}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkMultiply(range(Long.MAX_VALUE - 60, Long.MAX_VALUE - 50, it), range(10, 66, it), "{?}")
+        }
+
+        checkMultiply(range(Long.MIN_VALUE + 20, Long.MIN_VALUE + 30, TyInteger.I128), range(-1, 0, TyInteger.I128), "{0, ${-(Long.MIN_VALUE + 30)}..${-(Long.MIN_VALUE + 20)}}")
+    }
+
+    fun `test multiply range to set`() {
+        checkMultiply(range(10, 20), setFromString("-5, 11..22"), "{-100..-50, 110..440}")
+        checkMultiply(range(-77, 2), setFromString("1, 11..22, 33..55"), "{-4235..2, 11..110}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val rangeI8 = range(8, 100, TyInteger.I8)
+        checkMultiply(rangeI8, setFromString("-5, 11..100", TyInteger.I8), "{-128..-40, 88..127}", filter)
+        checkMultiply(rangeI8, setFromString("89, 100..105", TyInteger.I8), "{!}", filter)
+        checkMultiply(rangeI8, setFromString("-128, 100..105", TyInteger.I8), "{!}", filter)
+
+        checkMultiply(range(-1, 5, TyInteger.I8), setFromString("-128, -100..1", TyInteger.I8), "{-128..100}", filter)
+        checkMultiply(range(-35, -29, TyInteger.I8), setFromString("-128, -105..-100", TyInteger.I8), "{!}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkMultiply(range(Long.MAX_VALUE - 60, Long.MAX_VALUE - 50, it), setFromString("-128, 100..150", it), "{?}")
+        }
+
+        checkMultiply(range(Long.MIN_VALUE + 20, Long.MIN_VALUE + 30, TyInteger.I128), setFromString("-33..-10, 0", TyInteger.I128), "{?}")
+    }
+
+    fun `test multiply set to set`() {
+        checkMultiply(setFromString("-5..0, 23..44"), setFromString("-5, 11..22"), "{-220..-115, -110..-11, 0, 5..25, 253..968}")
+        checkMultiply(setFromString("-5, 11..22"), setFromString("1, 11..22, 33..55"), "{-275..-165, -110..-55, -5, 11..22, 121..1210}")
+
+        val filter = { it: Long -> it in -128L..127L }
+        val setI8 = setFromString("-5, 22, 30..40", TyInteger.I8)
+        checkMultiply(setI8, setFromString("-5, 11..100", TyInteger.I8), "{-128..-55, 25}", filter)
+        checkMultiply(setI8, setFromString("3, 100..105", TyInteger.I8), "{-15, 66, 90..120}", filter)
+        checkMultiply(setI8, setFromString("-128, 127", TyInteger.I8), "{!}", filter)
+
+        checkMultiply(range(-1, 5, TyInteger.I8), setFromString("-128, -100..1, 3, 4", TyInteger.I8), "{-128..100}", filter)
+        checkMultiply(setFromString("-128..-127, 5..127", TyInteger.I8), setFromString("-128..-6, 126..127", TyInteger.I8), "{-128..-30}", filter)
+
+        listOf(TyInteger.U64, TyInteger.I128, TyInteger.U128, TyInteger.USize).forEach {
+            checkMultiply(setFromString("${Long.MAX_VALUE - 60}..${Long.MAX_VALUE - 50}, 0", it), setFromString("-128, 100..150", it), "{?}")
+        }
+
+        checkMultiply(setFromString("${Long.MIN_VALUE + 20}..${Long.MIN_VALUE + 30}, 0", TyInteger.I128), setFromString("-33..-10, 0", TyInteger.I128), "{?}")
+    }
+
     private fun checkAdd(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) {
         checkBinOp(left, right, expected, ArithmeticOp.ADD, ::checkedAddOrNull, filter)
         checkBinOp(right, left, expected, ArithmeticOp.ADD, ::checkedAddOrNull, filter)

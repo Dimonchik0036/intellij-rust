@@ -256,8 +256,7 @@ sealed class LongRangeSet(val type: TyInteger) {
                 result = result.unite(part)
             }
         }
-
-        return result
+        return if (result.isEmpty) empty(true) else result
     }
 
     private fun times(lhsMin: Long, lhsMax: Long, rhsMin: Long, rhsMax: Long): LongRangeSet = try {
@@ -266,11 +265,11 @@ sealed class LongRangeSet(val type: TyInteger) {
         val rightLeft = checkedMultiply(lhsMax, rhsMin)
         val rightRight = checkedMultiply(lhsMax, rhsMax)
 
-        val leftValue = min(minOf(leftLeft, leftRight, rightLeft), rightRight)
-        val rightValue = max(maxOf(leftLeft, leftRight, rightLeft), rightRight)
+        val leftResult = min(minOf(leftLeft, leftRight, rightLeft), rightRight)
+        val rightResult = max(maxOf(leftLeft, leftRight, rightLeft), rightRight)
 
-        if (leftLeft > maxPossible || rightValue < minPossible) empty(true)
-        else range(overflowCorrection(leftValue), overflowCorrection(rightValue))
+        if (leftResult > maxPossible || rightResult < minPossible) empty(true)
+        else range(overflowCorrection(leftResult), overflowCorrection(rightResult))
     } catch (e: ArithmeticException) {
         // TODO i64 * i64 not unknown
         unknown()
