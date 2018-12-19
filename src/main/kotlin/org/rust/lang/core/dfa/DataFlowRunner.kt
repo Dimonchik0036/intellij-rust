@@ -23,6 +23,8 @@ class DataFlowRunner(val function: RsFunction) {
     private val instructions = hashSetOf<BinOpInstruction>()
     val overflowExpressions = hashSetOf<RsExpr>()
     private val states = TIntObjectHashMap<DfaMemoryState>()
+    var exception: DfaException? = null
+        private set
     //    var unvisitedElements: Set<RsElement> = emptySet()
 //        private set
     //for debug
@@ -63,7 +65,13 @@ class DataFlowRunner(val function: RsFunction) {
         }
         RunnerResult.OK
     } catch (e: Exception) {
-        RunnerResult.NOT_APPLICABLE
+        when (e) {
+            is DfaException -> {
+                exception = e
+                RunnerResult.OK
+            }
+            else -> RunnerResult.NOT_APPLICABLE
+        }
     }
 
     private fun initFunctionParameters() {
@@ -119,6 +127,7 @@ class DataFlowRunner(val function: RsFunction) {
     }
 
     private fun visitAstNode(element: RsElement, node: CFGNode, visitorState: NodeVisitorState) = when (element) {
+        //TODO visit stmt (example function args)
         is RsLetDecl -> visitLetDeclNode(node, element, visitorState)
         is RsBinaryExpr -> visitBinExpr(node, element, visitorState)
         is RsRetExpr -> {
@@ -331,6 +340,11 @@ class DataFlowRunner(val function: RsFunction) {
         return this
     }
 
+    private fun DfaValue.throwErrorIfDivideByZero(expr: RsExpr): DfaValue {
+        if (this is DfaFactMapValue && this[DfaFactType.RANGE]?.hasDivisionByZero == true) throw DfaDivisionByZeroException(expr)
+        return this
+    }
+
     private fun valueFromExpr(expr: RsExpr?, state: DfaMemoryState): DfaValue {
         val expr = expr?.skipParenExprDown() ?: return DfaUnknownValue
         return when (expr) {
@@ -339,7 +353,7 @@ class DataFlowRunner(val function: RsFunction) {
             is RsBinaryExpr -> valueFromBinExpr(expr, state)
             is RsUnaryExpr -> valueFromUnaryExpr(expr, state)
             else -> valueFactory.createTypeValue(expr.type)
-        }.addExprIfOverflow(expr)
+        }.throwErrorIfDivideByZero(expr).addExprIfOverflow(expr)
     }
 
     private fun valueFromUnaryExpr(expr: RsUnaryExpr, state: DfaMemoryState): DfaValue =

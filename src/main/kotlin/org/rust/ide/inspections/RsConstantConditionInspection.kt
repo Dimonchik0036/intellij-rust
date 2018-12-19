@@ -8,9 +8,7 @@ package org.rust.ide.inspections
 import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemsHolder
 import org.rust.ide.utils.skipParenExprDown
-import org.rust.lang.core.dfa.DataFlowRunner
-import org.rust.lang.core.dfa.DfaMemoryState
-import org.rust.lang.core.dfa.RunnerResult
+import org.rust.lang.core.dfa.*
 import org.rust.lang.core.psi.*
 import org.rust.lang.core.types.dataFlowAnalysisResult
 import org.rust.lang.core.types.ty.TyBool
@@ -54,7 +52,7 @@ private fun createDescription(holder: ProblemsHolder, runner: DataFlowRunner) {
     falseSet.forEach { registerConstantBoolean(holder, it, false) }
 
     runner.overflowExpressions.forEach { registerOverflow(holder, it) }
-
+    registerError(holder, runner.exception)
 //    registerUnreachableCode(holder, runner.unvisitedElements)
     //dor debug
     addStates(holder, runner.resultState)
@@ -78,6 +76,13 @@ private fun registerConstantBoolean(holder: ProblemsHolder, expr: RsExpr, value:
     holder.registerProblem(expr, "Condition '${expr.text}' is always '$value'")
 }
 
-private fun registerOverflow(holder: ProblemsHolder, expr: RsExpr) {
-    holder.registerProblem(expr, "Expression '${expr.text}' is overflow")
+private fun registerOverflow(holder: ProblemsHolder, expr: RsExpr) = when (expr) {
+    is RsLitExpr -> holder.registerProblem(expr, "Literal out of range for ${expr.type}")
+    else -> holder.registerProblem(expr, "Expression '${expr.text}' is overflow")
+}
+
+private fun registerError(holder: ProblemsHolder, error: DfaException?) = when (error) {
+    is DfaDivisionByZeroException -> holder.registerProblem(error.expr, "Division by zero", ProblemHighlightType.ERROR)
+    else -> {
+    }
 }

@@ -44,7 +44,12 @@ sealed class LongRangeSet(val type: TyInteger) {
     /**
      * @return true if set is overflow
      */
-    val isOverflow: Boolean get() = this === Empty.EmptyWithOverflow
+    val isOverflow: Boolean get() = this === Empty.Overflow
+
+    /**
+     * @return true if a division by zero error occurred
+     */
+    val hasDivisionByZero: Boolean get() = this === Empty.DivideByZero
 
     /**
      * @return true if set is empty
@@ -236,8 +241,10 @@ sealed class LongRangeSet(val type: TyInteger) {
     //TODO make abstract ?
     operator fun times(other: LongRangeSet): LongRangeSet {
         if (isUnknown || other.isUnknown) return unknown()
-        if (isEmpty || other.isEmpty) return this
-        if (this is Point && value == 0L || other is Point && other.value == 0L) return point(0)
+        if (isEmpty || other.isEmpty) return empty(other)
+        if (isZero) return this
+        if (other.isZero) return other
+
         val left = without(0).asRanges
         val right = other.without(0).asRanges
 
@@ -351,7 +358,7 @@ sealed class LongRangeSet(val type: TyInteger) {
 
         fun set(ranges: LongArray, type: TyInteger = TyInteger.I64): LongRangeSet = RangeSet(ranges, type)
 
-        fun empty(overflow: Boolean = false): LongRangeSet = if (overflow) Empty.EmptyWithOverflow else Empty.EmptyWithoutOverflow
+        fun empty(overflow: Boolean = false): LongRangeSet = if (overflow) Empty.Overflow else Empty.EmptyRange
 
         fun unknown(): LongRangeSet = Unknown
 
@@ -380,7 +387,7 @@ sealed class Empty : LongRangeSet(TyInteger.I64) {
 
     override operator fun unaryMinus(): LongRangeSet = this
 
-    override operator fun plus(other: LongRangeSet): LongRangeSet = this
+    override operator fun plus(other: LongRangeSet): LongRangeSet = empty(other)
 
     override operator fun rem(divisor: LongRangeSet): LongRangeSet = this
 
@@ -394,11 +401,15 @@ sealed class Empty : LongRangeSet(TyInteger.I64) {
 
     override fun toString(): String = "{}"
 
-    object EmptyWithOverflow : Empty() {
+    object Overflow : Empty() {
         override fun toString(): String = "{!}"
     }
 
-    object EmptyWithoutOverflow : Empty()
+    object DivideByZero : Empty() {
+        override fun toString(): String = "{z}"
+    }
+
+    object EmptyRange : Empty()
 }
 
 object Unknown : LongRangeSet(TyInteger.I64) {
@@ -424,7 +435,7 @@ object Unknown : LongRangeSet(TyInteger.I64) {
 
     override operator fun plus(other: LongRangeSet): LongRangeSet = if (other.isEmpty) other else this
 
-    override operator fun rem(divisor: LongRangeSet): LongRangeSet = this
+    override operator fun rem(divisor: LongRangeSet): LongRangeSet = if (divisor.isEmpty || divisor.isZero) Empty.DivideByZero else this
 
     override val stream: LongStream get() = throw UnsupportedOperationException()
 
@@ -483,9 +494,7 @@ class Point(val value: Long, type: TyInteger) : LongRangeSet(type) {
 
     override operator fun rem(divisor: LongRangeSet): LongRangeSet {
         if (divisor.isUnknown) return divisor
-        // TODO div by zero is overflow or empty?
-        if (divisor.isEmpty || divisor is Point && divisor.value == 0L) return empty(true)
-        var divisor = divisor
+        if (divisor.isEmpty || divisor.isZero) return Empty.DivideByZero
         if (value == 0L) return this
         if (divisor is Point) {
             return point(value % divisor.value)
@@ -659,7 +668,7 @@ class Range(val from: Long, val to: Long, type: TyInteger) : LongRangeSet(type) 
     override operator fun rem(divisor: LongRangeSet): LongRangeSet {
         if (divisor.isUnknown) return divisor
         // TODO divide by zero is overflow or empty?
-        if (divisor.isEmpty || divisor == point(0)) return empty(true)
+        if (divisor.isEmpty || divisor.isZero) return Empty.DivideByZero
         if (divisor is Point && divisor.value == minPossible) {
             return if (contains(minPossible)) subtract(divisor).unite(point(0)) else this
         }
@@ -870,7 +879,7 @@ class RangeSet(val ranges: LongArray, type: TyInteger) : LongRangeSet(type) {
     }
 
     override operator fun rem(divisor: LongRangeSet): LongRangeSet {
-        if (divisor.isEmpty) return empty(true)
+        if (divisor.isEmpty || divisor.isZero) return Empty.DivideByZero
         if (divisor.isUnknown) return divisor
         var result = empty()
         for (i in ranges.indices step 2) {
@@ -895,14 +904,13 @@ class RangeSet(val ranges: LongArray, type: TyInteger) : LongRangeSet(type) {
         if (other === this) true
         else other is RangeSet && ranges.contentEquals(other.ranges)
 
-    override fun toString(): String {
-        val sb = StringBuilder("{")
+    override fun toString(): String = buildString {
+        append("{")
         for (i in ranges.indices step 2) {
-            if (i > 0) sb.append(", ")
-            sb.append(toString(ranges[i], ranges[i + 1]))
+            if (i > 0) append(", ")
+            append(toString(ranges[i], ranges[i + 1]))
         }
-        sb.append("}")
-        return sb.toString()
+        append("}")
     }
 }
 
@@ -937,6 +945,7 @@ private val TyInteger.size: Long
         TyInteger.USize -> 64
     }
 
+private val LongRangeSet.isZero: Boolean get() = this is Point && value == 0L
 
 private val TyInteger.isLargeOnTop: Boolean
     get() = when (this) {
@@ -985,6 +994,8 @@ private fun splitAtZero(ranges: LongArray): LongArray {
     }
     return ranges
 }
+
+private fun LongRangeSet.empty(other: LongRangeSet): LongRangeSet = empty(isOverflow || other.isOverflow)
 
 private val ComparisonOp.mirror: ComparisonOp
     get() = when (this) {

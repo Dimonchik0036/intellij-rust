@@ -38,6 +38,23 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
         }
     """)
 
+    fun `test declaration from overflow literal expression`() = checkWithExpandValues("""
+        fn main() {
+            let x/*{!}*/ = <warning descr="Literal out of range for i8">200i8</warning>;
+        }
+    """)
+
+    fun `test division by zero stops the analysis`() = checkWithExpandValues("""
+        fn main() {
+            let x/*{0}*/ = 5 * 0;
+            let a = <error descr="Division by zero">10 % x</error>;
+            let f = true;
+            if f {
+
+            }
+        }
+    """)
+
     fun `test declaration from arguments`() = checkWithExpandValues("""
         fn foo(
             a/*{-2147483648..2147483647}*/: i32,
