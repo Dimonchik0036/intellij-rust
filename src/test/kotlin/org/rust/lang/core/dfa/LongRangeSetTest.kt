@@ -877,8 +877,6 @@ class LongRangeSetTest : RsTestBase() {
     }
 
     fun `test add empty and unknown`() {
-
-
         TyInteger.VALUES.forEach { type ->
             val ranges = listOf(
                 point(42, type),
@@ -889,8 +887,8 @@ class LongRangeSetTest : RsTestBase() {
 
             checkMethodWithBooleanResult(
                 ranges + empty() to { other ->
-                    checkSet("{}", empty().plus(other))
-                    checkSet("{}", other.plus(empty()))
+                    checkSet("{}", empty() + other)
+                    checkSet("{}", other + empty())
                     true
                 }
             )
@@ -898,8 +896,8 @@ class LongRangeSetTest : RsTestBase() {
             checkMethodWithBooleanResult(
                 ignore = Empty::class,
                 pair = ranges to { other ->
-                    checkSet("{?}", unknown().plus(other))
-                    checkSet("{?}", other.plus(unknown()))
+                    checkSet("{?}", unknown() + other)
+                    checkSet("{?}", other + unknown())
                     true
                 }
             )
@@ -1043,9 +1041,63 @@ class LongRangeSetTest : RsTestBase() {
         checkSub(point(TyInteger.I128.MIN_POSSIBLE, TyInteger.I128), point(1, TyInteger.I128), "{?}")
     }
 
+    fun `test multiply empty and unknown`() {
+        TyInteger.VALUES.forEach { type ->
+            val ranges = listOf(
+                point(42, type),
+                range(0, 100, type),
+                setFromString("0, 11, 42", type),
+                unknown()
+            )
+
+            checkMethodWithBooleanResult(
+                ranges + empty() to { other ->
+                    checkSet("{}", empty() * other)
+                    checkSet("{}", other * empty())
+                    true
+                }
+            )
+
+            checkMethodWithBooleanResult(
+                ignore = Empty::class,
+                pair = ranges to { other ->
+                    checkSet("{?}", unknown() * other)
+                    checkSet("{?}", other * unknown())
+                    true
+                }
+            )
+        }
+    }
+
+    fun `test multiply by zero`() {
+        TyInteger.VALUES.forEach { type ->
+            val ranges = listOf(
+                point(42, type),
+                range(0, 100, type),
+                setFromString("0, 11, 42", type)
+            )
+
+            val zeroPoint = point(0, type)
+            checkMethodWithBooleanResult(
+                ignore = listOf(Empty::class, Unknown::class),
+                pair = ranges to { other ->
+                    checkMultiply(zeroPoint, other, "{0}")
+                    true
+                }
+            )
+            checkSet("{0}", unknown() * zeroPoint)
+            checkSet("{0}", zeroPoint * unknown())
+        }
+    }
+
     private fun checkAdd(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) {
         checkBinOp(left, right, expected, ArithmeticOp.ADD, ::checkedAddOrNull, filter)
         checkBinOp(right, left, expected, ArithmeticOp.ADD, ::checkedAddOrNull, filter)
+    }
+
+    private fun checkMultiply(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) {
+        checkBinOp(left, right, expected, ArithmeticOp.MUL, ::checkedMultiplyOrNull, filter)
+        checkBinOp(right, left, expected, ArithmeticOp.MUL, ::checkedMultiplyOrNull, filter)
     }
 
     private fun checkSub(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) = checkBinOp(left, right, expected, ArithmeticOp.SUB, ::checkedSubOrNull, filter)

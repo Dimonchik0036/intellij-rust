@@ -240,10 +240,10 @@ sealed class LongRangeSet(val type: TyInteger) {
 
     //TODO make abstract ?
     operator fun times(other: LongRangeSet): LongRangeSet {
-        if (isUnknown || other.isUnknown) return unknown()
         if (isEmpty || other.isEmpty) return empty(other)
         if (isZero) return this
         if (other.isZero) return other
+        if (isUnknown || other.isUnknown) return unknown()
 
         val left = without(0).asRanges
         val right = other.without(0).asRanges
