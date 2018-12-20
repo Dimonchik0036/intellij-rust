@@ -320,9 +320,9 @@ sealed class LongRangeSet(val type: TyInteger) {
         else range(dividendMax / divisorMax, dividendMin / divisorMin)
         divisorMin > 0 -> range(dividendMin / divisorMin, dividendMax / divisorMax)
         else -> if (dividendMin == minPossible && divisorMax == -1L) {
-            if (divisorMin == -1L) if (isLargeOnTop) unknown() else empty(true)
+            if (divisorMin == -1L) -range(dividendMin, dividendMax)
             else range(dividendMin / divisorMin, dividendMin / (divisorMax - 1)).unite(
-                if (dividendMax == minPossible) empty(true)
+                if (dividendMax == minPossible) if (isLargeOnTop) unknown() else empty(true)
                 else range(dividendMax / divisorMin, (dividendMin + 1) / divisorMax)
             )
         } else range(dividendMax / divisorMin, dividendMin / divisorMax)
@@ -523,7 +523,9 @@ class Point(val value: Long, type: TyInteger) : LongRangeSet(type) {
             else -> point(-value)
         }
 
-    override operator fun unaryMinus(): LongRangeSet = if (value == minPossible) empty(true) else point(-value)
+    override operator fun unaryMinus(): LongRangeSet = if (value == minPossible)
+        if (isLargeOnTop) unknown() else empty(true)
+    else point(-value)
 
     override operator fun plus(other: LongRangeSet): LongRangeSet = when {
         other.isEmpty || other.isUnknown -> other

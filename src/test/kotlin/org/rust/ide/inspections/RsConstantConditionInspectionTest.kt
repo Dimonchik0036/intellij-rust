@@ -44,10 +44,21 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
         }
     """)
 
-    fun `test division by zero stops the analysis`() = checkWithExpandValues("""
+    fun `test division by zero stops the analysis 1`() = checkWithExpandValues("""
         fn main() {
             let x/*{0}*/ = 5 * 0;
             let a = <error descr="Division by zero">10 % x</error>;
+            let f = true;
+            if f {
+
+            }
+        }
+    """)
+
+    fun `test division by zero stops the analysis 2`() = checkWithExpandValues("""
+        fn main() {
+            let x/*{0}*/ = 5 * 0;
+            let a = <error descr="Division by zero">10 / x</error>;
             let f = true;
             if f {
 
