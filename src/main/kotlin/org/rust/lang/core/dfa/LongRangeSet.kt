@@ -260,26 +260,33 @@ sealed class LongRangeSet(val type: TyInteger) {
         return result.overflowIfEmpty()
     }
 
-    private fun times(lhsMin: Long, lhsMax: Long, rhsMin: Long, rhsMax: Long): LongRangeSet = try {
-        val leftLeft = checkedMultiply(lhsMin, rhsMin)
-        val leftRight = checkedMultiply(lhsMin, rhsMax)
-        val rightLeft = checkedMultiply(lhsMax, rhsMin)
-        val rightRight = checkedMultiply(lhsMax, rhsMax)
-
-        val leftResult = min(minOf(leftLeft, leftRight, rightLeft), rightRight)
-        val rightResult = max(maxOf(leftLeft, leftRight, rightLeft), rightRight)
-
-        if (leftResult > maxPossible || rightResult < minPossible) empty(true)
-        else range(overflowCorrection(leftResult), overflowCorrection(rightResult))
-    } catch (e: ArithmeticException) {
-        // TODO i64 * i64 not unknown
-        unknown()
+    private fun times(lhsMin: Long, lhsMax: Long, rhsMin: Long, rhsMax: Long): LongRangeSet = if (lhsMax > 0) {
+        if (rhsMin > 0) {
+            val left = checkedMultiplyOrNull(lhsMin, rhsMin)
+            val right = checkedMultiplyOrNull(lhsMax, rhsMax)
+            rangeWithOverflowCheck(left, right)
+        } else {
+            val left = checkedMultiplyOrNull(lhsMax, rhsMin)
+            val right = checkedMultiplyOrNull(lhsMin, rhsMax)
+            rangeWithOverflowCheck(left, right)
+        }
+    } else {
+        if (rhsMin > 0) times(rhsMin, rhsMax, lhsMin, lhsMax)
+        else {
+            val left = checkedMultiplyOrNull(lhsMax, rhsMax)
+            val right = checkedMultiplyOrNull(lhsMin, rhsMin)
+            rangeWithOverflowCheck(left, right)
+        }
     }
 
-    protected fun overflowCorrection(value: Long): Long = when {
-        value <= minPossible -> minPossible
-        value >= maxPossible -> maxPossible
-        else -> value
+    private fun rangeWithOverflowCheck(from: Long?, to: Long?) = when {
+        from == null || to == null -> when {
+            to == null && isLargeOnTop || from == null && isLargeBelow -> unknown()
+            from == null && to == null -> empty(true)
+            else -> LongRangeSet.range(from ?: minPossible, to ?: maxPossible, type)
+        }
+        from > maxPossible || to < minPossible -> empty(true)
+        else -> LongRangeSet.range(overflowCorrection(from), overflowCorrection(to), type)
     }
 
     /**
@@ -535,6 +542,7 @@ class Point(val value: Long, type: TyInteger) : LongRangeSet(type) {
         if (divisor.isUnknown) return divisor
         if (divisor.isEmpty || divisor.isZero) return Empty.DivisionByZero
         if (value == 0L) return this
+        val divisor = divisor.without(0)
         if (divisor is Point) {
             return point(value % divisor.value)
         }
@@ -707,6 +715,7 @@ class Range(val from: Long, val to: Long, type: TyInteger) : LongRangeSet(type) 
     override operator fun rem(divisor: LongRangeSet): LongRangeSet {
         if (divisor.isUnknown) return divisor
         if (divisor.isEmpty || divisor.isZero) return Empty.DivisionByZero
+        val divisor = divisor.without(0)
         if (divisor is Point && divisor.value == minPossible) {
             return if (contains(minPossible)) subtract(divisor).unite(point(0)) else this
         }
@@ -919,6 +928,7 @@ class RangeSet(val ranges: LongArray, type: TyInteger) : LongRangeSet(type) {
     override operator fun rem(divisor: LongRangeSet): LongRangeSet {
         if (divisor.isEmpty || divisor.isZero) return Empty.DivisionByZero
         if (divisor.isUnknown) return divisor
+        val divisor = divisor.without(0)
         var result = empty()
         for (i in ranges.indices step 2) {
             result = result.unite(range(ranges[i], ranges[i + 1]) % divisor)
@@ -1043,6 +1053,12 @@ private val ComparisonOp.mirror: ComparisonOp
         ComparisonOp.GTEQ -> ComparisonOp.LTEQ
         ComparisonOp.LTEQ -> ComparisonOp.GTEQ
     }
+
+private fun LongRangeSet.overflowCorrection(value: Long): Long = when {
+    value <= minPossible -> minPossible
+    value >= maxPossible -> maxPossible
+    else -> value
+}
 
 fun checkedAddOrNull(a: Long, b: Long): Long? = try {
     checkedAdd(a, b)

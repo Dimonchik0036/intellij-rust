@@ -1105,8 +1105,7 @@ class LongRangeSetTest : RsTestBase() {
             )
         }
 
-        // TODO remove I64, ISize
-        (TyInteger.VALUES - TyInteger.I128 - TyInteger.I64 - TyInteger.ISize).filter { it.name.startsWith("i") }.forEach { type ->
+        (TyInteger.VALUES - TyInteger.I128).filter { it.name.startsWith("i") }.forEach { type ->
             checkMultiply(point(type.MIN_POSSIBLE, type), point(-1, type), "{!}") { it in type.MIN_POSSIBLE..type.MAX_POSSIBLE }
         }
 
@@ -1177,9 +1176,8 @@ class LongRangeSetTest : RsTestBase() {
     }
 
     fun `test multiply range to range`() {
-        //TODO
-//        checkMultiply(range(Long.MAX_VALUE - 10, Long.MAX_VALUE), range(2, 5), "{!}")
-//        checkMultiply(range(Long.MAX_VALUE/5, Long.MAX_VALUE), range(5, 8), "{${Long.MAX_VALUE-1}..${Long.MAX_VALUE}}")
+        checkMultiply(range(Long.MAX_VALUE - 10, Long.MAX_VALUE), range(2, 5), "{!}")
+        checkMultiply(range(Long.MAX_VALUE / 5, Long.MAX_VALUE / 5 + 10), range(5, 8), "{${Long.MAX_VALUE - Long.MAX_VALUE % 5}..${Long.MAX_VALUE}}")
 
         val filter = { it: Long -> it in -128L..127L }
         checkMultiply(range(-128, 127, TyInteger.I8), range(-10, 10, TyInteger.I8), "{-128..127}", filter)
@@ -1298,6 +1296,7 @@ class LongRangeSetTest : RsTestBase() {
         val point = point(3)
         checkMod(point, setFromString("-5, 11..22"), "{3}")
         checkMod(point, setFromString("1, 11..22, 33..55"), "{0..3}")
+        checkMod(point, setFromString("${Long.MIN_VALUE}, 0"), "{3}")
 
         val filter = { it: Long -> it in -128L..127L }
         val pointI8 = point(5, TyInteger.I8)
@@ -1590,66 +1589,17 @@ class LongRangeSetTest : RsTestBase() {
         pair: Pair<Collection<LongRangeSet>, (LongRangeSet) -> Boolean>) =
         checkMethodWithBooleanResult(listOf(ignore), listOf(pair))
 
-    //
-//    fun `test mod`() {
-//        assertEquals(empty(), empty().mod(all()))
-//        assertEquals(empty(TyInteger.I64), all().mod(empty(TyInteger.I64)))
-//        assertEquals(empty(TyInteger.I64), point(1, TyInteger.I64).mod(empty(TyInteger.I64)))
-//        assertEquals(
-//            empty(TyInteger.I64),
-//            point(1, TyInteger.I64).union(point(3, TyInteger.I64)).mod(empty(TyInteger.I64))
-//        )
-//
-//        assertEquals(point(10, TyInteger.I64), point(110, TyInteger.I64).mod(point(100, TyInteger.I64)))
-//        checkMod(range(10, 20), range(30, 40), "{10..20}")
-//        checkMod(range(-10, 10), range(20, 30), "{-10..10}")
-//        checkMod(point(0), range(-100, -50).union(range(20, 80)), "{0}")
-//        checkMod(point(30), range(10, 40), "{0..30}")
-//        checkMod(point(-30), range(-10, 40), "{-30..0}")
-//        checkMod(point(RsRanges.MIN_VALUE, TyInteger.I64), range(-10, 40, TyInteger.I64), "{-39..0}")
-//        checkMod(range(-10, 40, TyInteger.I64), point(RsRanges.MIN_VALUE, TyInteger.I64), "{-10..40}")
-//        checkMod(range(-30, -20), point(23), "{-22..0}")
-//        checkMod(point(10), range(30, 40), "{10}")
-//        checkMod(
-//            range(-10, 40, TyInteger.I64),
-//            point(RsRanges.MIN_VALUE, TyInteger.I64).union(point(70, TyInteger.I64)),
-//            "{-10..40}"
-//        )
-//        checkMod(
-//            range(-10, 40, TyInteger.I64),
-//            point(RsRanges.MIN_VALUE, TyInteger.I64).union(point(0, TyInteger.I64)),
-//            "{-10..40}"
-//        )
-//        checkMod(
-//            point(10, TyInteger.I64),
-//            point(RsRanges.MIN_VALUE, TyInteger.I64).union(point(0, TyInteger.I64)),
-//            "{0, 10}"
-//        )
-//        checkMod(range(0, 10).union(range(30, 50)), range(-20, -10).union(range(15, 25)), "{0..24}")
-//        checkMod(point(10), point(0), "{}")
-//        checkMod(range(0, 10), point(0), "{}")
-//        checkMod(
-//            range(RsRanges.MIN_VALUE, RsRanges.MIN_VALUE + 3, TyInteger.I64),
-//            point(RsRanges.MIN_VALUE, TyInteger.I64),
-//            "{-9223372036854775807..-9223372036854775805, 0}"
-//        )
-//        checkMod(
-//            range(RsRanges.MAX_VALUE - 3, RsRanges.MAX_VALUE, TyInteger.I64),
-//            point(RsRanges.MAX_VALUE, TyInteger.I64),
-//            "{0..${Long.MAX_VALUE - 1}}"
-//        )
-//    }
 //
 //    fun `test div`() {
-//        assertEquals(empty(TyInteger.I64), empty(TyInteger.I64).div(all()))
-//        assertEquals(empty(TyInteger.I64), all().div(empty(TyInteger.I64)))
-//        assertEquals(empty(TyInteger.I64), point(1, TyInteger.I64).div(empty(TyInteger.I64)))
+//        assertEquals(empty(), empty().div(all()))
+//        assertEquals(empty(), all().div(empty()))
+//        assertEquals(empty(), point(1, TyInteger.I64).div(empty()))
 //        assertEquals(
-//            empty(TyInteger.I64),
-//            point(1, TyInteger.I64).div(point(3, TyInteger.I64)).div(empty(TyInteger.I64))
+//            empty(),
+//            point(1, TyInteger.I64).div(point(3, TyInteger.I64)).div(empty())
 //        )
 //        assertEquals(all(), all().div(all()))
-//        assertEquals(empty(TyInteger.I64), all().div(point(0, TyInteger.I64)))
+//        assertEquals(empty(), all().div(point(0, TyInteger.I64)))
 //        assertEquals(all(), all().div(point(1)))
 //        assertEquals(all(), all().div(point(-1)))
 //        assertEquals(point(11), point(110).div(point(10)))
