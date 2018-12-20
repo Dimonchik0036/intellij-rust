@@ -167,14 +167,14 @@ sealed class LongRangeSet(val type: TyInteger) {
     }
 
     /**
-     * Performs a supported binary operation from op (defined in [BinaryOperator]).
+     * Performs a supported binary operation from op (defined in [OverloadableBinaryOperator]).
      *
      * @param op  a op which corresponds to the operation
      * @param right  a right-hand operand
      * @return the resulting LongRangeSet which covers possible results of the operation (probably including some more elements);
      * or UNKNOWN if the supplied op is not supported.
      */
-    fun binOpFromToken(op: BinaryOperator, right: LongRangeSet): LongRangeSet = when (op) {
+    fun binOpFromToken(op: OverloadableBinaryOperator, right: LongRangeSet): LongRangeSet = when (op) {
         ArithmeticOp.ADD, ArithmeticAssignmentOp.PLUSEQ -> plus(right)
         ArithmeticOp.SUB, ArithmeticAssignmentOp.MINUSEQ -> minus(right)
         ArithmeticOp.REM, ArithmeticAssignmentOp.REMEQ -> rem(right)
@@ -257,7 +257,7 @@ sealed class LongRangeSet(val type: TyInteger) {
                 result = result.unite(part)
             }
         }
-        return if (result.isEmpty) empty(true) else result
+        return result.overflowIfEmpty()
     }
 
     private fun times(lhsMin: Long, lhsMax: Long, rhsMin: Long, rhsMax: Long): LongRangeSet = try {
@@ -305,7 +305,7 @@ sealed class LongRangeSet(val type: TyInteger) {
                 result = result.unite(divide(left[i], left[i + 1], right[j], right[j + 1]))
             }
         }
-        return result
+        return if (result.isEmpty) empty(true) else result
     }
 
     private fun divide(dividendMin: Long, dividendMax: Long, divisorMin: Long, divisorMax: Long): LongRangeSet = when {
@@ -313,9 +313,9 @@ sealed class LongRangeSet(val type: TyInteger) {
         else range(dividendMax / divisorMax, dividendMin / divisorMin)
         divisorMin > 0 -> range(dividendMin / divisorMin, dividendMax / divisorMax)
         else -> if (dividendMin == minPossible && divisorMax == -1L) {
-            if (divisorMin == -1L) empty()
+            if (divisorMin == -1L) if (isLargeOnTop) unknown() else empty(true)
             else range(dividendMin / divisorMin, dividendMin / (divisorMax - 1)).unite(
-                if (dividendMax == minPossible) empty()
+                if (dividendMax == minPossible) empty(true)
                 else range(dividendMax / divisorMin, (dividendMin + 1) / divisorMax)
             )
         } else range(dividendMax / divisorMin, dividendMin / divisorMax)
@@ -690,7 +690,7 @@ class Range(val from: Long, val to: Long, type: TyInteger) : LongRangeSet(type) 
             result = result.unite(plus(this.from, this.to, ranges[i], ranges[i + 1]))
             if (result.isUnknown) return result
         }
-        return result
+        return result.overflowIfEmpty()
     }
 
     private fun plus(from1: Long, to1: Long, from2: Long, to2: Long): LongRangeSet {
@@ -893,7 +893,7 @@ class RangeSet(val ranges: LongArray, type: TyInteger) : LongRangeSet(type) {
             for (i in ranges.indices step 2) {
                 result = result.unite(range(ranges[i], ranges[i + 1]).abs)
             }
-            return result
+            return result.overflowIfEmpty()
         }
 
     override operator fun unaryMinus(): LongRangeSet {
@@ -901,7 +901,7 @@ class RangeSet(val ranges: LongArray, type: TyInteger) : LongRangeSet(type) {
         for (i in ranges.indices step 2) {
             result = result.unite(-range(ranges[i], ranges[i + 1]))
         }
-        return result
+        return result.overflowIfEmpty()
     }
 
     override operator fun plus(other: LongRangeSet): LongRangeSet {
@@ -923,7 +923,7 @@ class RangeSet(val ranges: LongArray, type: TyInteger) : LongRangeSet(type) {
         for (i in ranges.indices step 2) {
             result = result.unite(range(ranges[i], ranges[i + 1]) % divisor)
         }
-        return result
+        return result.overflowIfEmpty()
     }
 
     override val stream: LongStream
@@ -1034,6 +1034,7 @@ private fun splitAtZero(ranges: LongArray): LongArray {
 }
 
 private fun LongRangeSet.empty(other: LongRangeSet): LongRangeSet = empty(isOverflow || other.isOverflow)
+private fun LongRangeSet.overflowIfEmpty(): LongRangeSet = if (isEmpty) empty(true) else this
 
 private val ComparisonOp.mirror: ComparisonOp
     get() = when (this) {
@@ -1068,7 +1069,7 @@ fun checkedModOrNull(a: Long, b: Long): Long? = try {
 }
 
 fun checkedDivOrNull(a: Long, b: Long): Long? = try {
-    a / b
+    if (a == Long.MIN_VALUE && b == -1L) null else a / b
 } catch (e: ArithmeticException) {
     null
 }

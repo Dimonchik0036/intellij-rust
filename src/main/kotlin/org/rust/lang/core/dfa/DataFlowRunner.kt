@@ -384,7 +384,7 @@ class DataFlowRunner(val function: RsFunction) {
             return value
         }
 //      TODO check type?
-        if (leftValue.type != rightValue.type) return DfaUnknownValue
+        if (op !is OverloadableBinaryOperator || leftValue.type != rightValue.type) return DfaUnknownValue
         val leftRange = LongRangeSet.fromDfaValue(leftValue) ?: return DfaUnknownValue
         val rightRange = LongRangeSet.fromDfaValue(rightValue) ?: return DfaUnknownValue
         return valueFactory.createRange(leftRange.binOpFromToken(op, rightRange))

@@ -12,10 +12,7 @@ import org.rust.lang.core.dfa.LongRangeSet.Companion.fromConstant
 import org.rust.lang.core.dfa.LongRangeSet.Companion.point
 import org.rust.lang.core.dfa.LongRangeSet.Companion.range
 import org.rust.lang.core.dfa.LongRangeSet.Companion.unknown
-import org.rust.lang.core.psi.ext.ArithmeticOp
-import org.rust.lang.core.psi.ext.BoolOp
-import org.rust.lang.core.psi.ext.ComparisonOp
-import org.rust.lang.core.psi.ext.EqualityOp
+import org.rust.lang.core.psi.ext.*
 import org.rust.lang.core.types.ty.Ty
 import org.rust.lang.core.types.ty.TyFloat
 import org.rust.lang.core.types.ty.TyInteger
@@ -1107,6 +1104,13 @@ class LongRangeSetTest : RsTestBase() {
                 }
             )
         }
+
+        // TODO remove I64, ISize
+        (TyInteger.VALUES - TyInteger.I128 - TyInteger.I64 - TyInteger.ISize).filter { it.name.startsWith("i") }.forEach { type ->
+            checkMultiply(point(type.MIN_POSSIBLE, type), point(-1, type), "{!}") { it in type.MIN_POSSIBLE..type.MAX_POSSIBLE }
+        }
+
+        checkMultiply(point(TyInteger.I128.MIN_POSSIBLE, TyInteger.I128), point(-1, TyInteger.I128), "{?}")
     }
 
     fun `test multiply point to point`() {
@@ -1386,6 +1390,37 @@ class LongRangeSetTest : RsTestBase() {
         }
     }
 
+    fun `test div by one and minus one`() {
+        TyInteger.VALUES.forEach { type ->
+            val ranges = listOf(
+                point(42, type),
+                range(0, 100, type),
+                setFromString("0, 11, 42", type),
+                unknown(),
+                empty()
+            )
+
+            val onePoint = point(1, type)
+            val minusOnePoint = point(-1, type)
+            checkMethodWithBooleanResult(
+                ranges to { other ->
+                    checkDiv(other, onePoint, other.toString())
+                    if (type.name.startsWith("i")) {
+                        checkDiv(other, minusOnePoint, other.unaryMinus().toString())
+                    }
+                    true
+                }
+            )
+        }
+
+        (TyInteger.VALUES - TyInteger.I128).filter { it.name.startsWith("i") }.forEach { type ->
+            checkDiv(point(type.MIN_POSSIBLE, type), point(-1, type), "{!}") { it in type.MIN_POSSIBLE..type.MAX_POSSIBLE }
+            checkDiv(point(-1, type), point(type.MIN_POSSIBLE, type), "{0}") { it in type.MIN_POSSIBLE..type.MAX_POSSIBLE }
+        }
+
+        checkDiv(point(TyInteger.I128.MIN_POSSIBLE, TyInteger.I128), point(-1, TyInteger.I128), "{?}")
+    }
+
     fun `test div point to point`() {
         val point = point(42)
         checkDiv(point, point(2), "{21}")
@@ -1491,22 +1526,29 @@ class LongRangeSetTest : RsTestBase() {
     private fun checkAdd(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) {
         checkBinOp(left, right, expected, ArithmeticOp.ADD, ::checkedAddOrNull, filter)
         checkBinOp(right, left, expected, ArithmeticOp.ADD, ::checkedAddOrNull, filter)
+        checkBinOp(left, right, expected, ArithmeticAssignmentOp.PLUSEQ, ::checkedAddOrNull, filter)
     }
 
     private fun checkMultiply(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) {
         checkBinOp(left, right, expected, ArithmeticOp.MUL, ::checkedMultiplyOrNull, filter)
         checkBinOp(right, left, expected, ArithmeticOp.MUL, ::checkedMultiplyOrNull, filter)
+        checkBinOp(left, right, expected, ArithmeticAssignmentOp.MULEQ, ::checkedMultiplyOrNull, filter)
     }
 
     private fun checkMod(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) {
         checkBinOp(left, right, expected, ArithmeticOp.REM, ::checkedModOrNull, filter)
+        checkBinOp(left, right, expected, ArithmeticAssignmentOp.REMEQ, ::checkedModOrNull, filter)
     }
 
     private fun checkDiv(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) {
         checkBinOp(left, right, expected, ArithmeticOp.DIV, ::checkedDivOrNull, filter)
+        checkBinOp(left, right, expected, ArithmeticAssignmentOp.DIVEQ, ::checkedDivOrNull, filter)
     }
 
-    private fun checkSub(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) = checkBinOp(left, right, expected, ArithmeticOp.SUB, ::checkedSubOrNull, filter)
+    private fun checkSub(left: LongRangeSet, right: LongRangeSet, expected: String, filter: (Long) -> Boolean = { true }) {
+        checkBinOp(left, right, expected, ArithmeticOp.SUB, ::checkedSubOrNull, filter)
+        checkBinOp(left, right, expected, ArithmeticAssignmentOp.MINUSEQ, ::checkedSubOrNull, filter)
+    }
 
     private fun checkSet(expected: String, actual: LongRangeSet?) = assertEquals(expected, actual.toString())
 
@@ -1753,7 +1795,7 @@ class LongRangeSetTest : RsTestBase() {
         left: LongRangeSet,
         right: LongRangeSet,
         expected: String,
-        operation: ArithmeticOp,
+        operation: OverloadableBinaryOperator,
         operator: (Long, Long) -> Long?,
         filter: (Long) -> Boolean = { true }
     ) {
