@@ -243,17 +243,45 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
                     let b1/*{40..89}*/ = input - 10;
                     let c1/*{500..990}*/ = input * 10;
                     let d1/*{0..9}*/ = input % 10;
+                    let e1/*{5..9}*/ = input / 10;
                 } else {
                     let a2/*{110..2147483647}*/ = input + 10;
                     let b2/*{90..2147483637}*/ = input - 10;
                     let c2/*{1000..2147483647}*/ = input * 10;
                     let d2/*{0..9}*/ = input % 10;
+                    let e2/*{10..214748364}*/ = input / 10;
                 }
             } else {
                     let a3/*{-2147483638..59}*/ = input + 10;
                     let b3/*{-2147483648..39}*/ = input - 10;
                     let c3/*{-2147483648..-10, 0, 10..490}*/ = input * 10;
                     let d3/*{-9..9}*/ = input % 10;
+                    let e3/*{-214748364..4}*/ = input / 10;
+            }
+        }
+    """)
+
+    fun `test apply condition 5`() = checkWithExpandValues("""
+       fn test(input/*{-2147483648..2147483647}*/: i32) {
+            let x/*{12}*/ = 12;
+            let y/*{77}*/ = 77;
+            let a/*{16, 61}*/: i32;
+            if input < 42 {
+                a = y - 16;
+                let f/*{-99..41}*/: i32;
+                if <warning descr="Condition 'a > 50' is always 'true'">a > 50</warning> {
+                    f = input % 100;
+                } else {
+                    f = 500;
+                }
+
+                let z/*{-2147483648..-10, 0, 10..410}*/ = input * 10;
+            } else {
+                a = x + 4;
+            }
+
+            if <warning descr="Condition 'a == 13' is always 'false'">a == 13</warning> {
+                println!("{}", a);
             }
         }
     """)

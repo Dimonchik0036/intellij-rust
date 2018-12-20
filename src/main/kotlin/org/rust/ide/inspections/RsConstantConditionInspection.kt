@@ -20,9 +20,6 @@ class RsConstantConditionInspection : RsLocalInspectionTool() {
         object : RsVisitor() {
             override fun visitFunction(o: RsFunction) {
                 if (o.block == null) return
-//                val block = o.block ?: return
-//                val cfg = buildFor(block)
-//                println(cfg.createDotDescription())
                 val (result, runner) = o.dataFlowAnalysisResult
                 when (result) {
                     RunnerResult.OK -> createDescription(holder, runner)
