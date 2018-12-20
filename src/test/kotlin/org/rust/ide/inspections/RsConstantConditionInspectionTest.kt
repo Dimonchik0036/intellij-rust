@@ -330,6 +330,39 @@ class RsConstantConditionInspectionTest : RsInspectionsTestBase(RsConstantCondit
         }
     """)
 
+    fun `test loop`() = checkWithExpandValues("""
+       fn test(input/*{-2147483648..2147483647}*/: i32) {
+            loop {
+                let c/*{77}*/ = 77;
+                if <warning descr="Condition 'c == 77' is always 'true'">c == 77</warning> {
+                    println!("{}", c);
+                }
+            }
+
+            let a: i32 = 42;
+            if a == 42 {
+                println!("{}", a);
+            }
+        }
+    """)
+
+    fun `test loop with break`() = checkWithExpandValues("""
+       fn test(input/*{-2147483648..2147483647}*/: i32) {
+            loop {
+                let c/*{77}*/ = 77;
+                if <warning descr="Condition 'c == 77' is always 'true'">c == 77</warning> {
+                    println!("{}", c);
+                }
+                break;
+            }
+
+            let a/*{42}*/: i32 = 42;
+            if <warning descr="Condition 'a == 42' is always 'true'">a == 42</warning> {
+                println!("{}", a);
+            }
+        }
+    """)
+
     private fun checkWithExpandValues(@Language("Rust") text: String) {
         checkByText(text)
         checkVariables()

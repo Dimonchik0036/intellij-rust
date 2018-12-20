@@ -23,10 +23,10 @@ class DataFlowRunner(val function: RsFunction) {
     private val instructions = hashSetOf<BinOpInstruction>()
     val overflowExpressions = hashSetOf<RsExpr>()
     private val states = TIntObjectHashMap<DfaMemoryState>()
+    private lateinit var nodeVisitorState: NodeVisitorState
     var exception: DfaException? = null
         private set
-    //    var unvisitedElements: Set<RsElement> = emptySet()
-//        private set
+
     //for debug
     var resultState: DfaMemoryState = createMemoryState()
         private set
@@ -59,9 +59,8 @@ class DataFlowRunner(val function: RsFunction) {
     fun analyze(): RunnerResult = try {
         val block = function.block
         if (block != null) {
-            val visitor = NodeVisitorState(block)
-            visitBranch(visitor)
-//            unvisitedElements = visitor.unvisitedElements.filter { it !is RsBlock }.toSet()
+            nodeVisitorState = NodeVisitorState(block)
+            println(visitBranch(nodeVisitorState.startNode))
         }
         RunnerResult.OK
     } catch (e: Exception) {
@@ -89,114 +88,152 @@ class DataFlowRunner(val function: RsFunction) {
     /***
      * @param endIndex 1 is index of [org.rust.lang.core.cfg.CFGNodeData.Exit] node
      */
-    private fun visitBranch(visitorState: NodeVisitorState, endIndex: Int = 1) {
+    private fun visitBranch(begin: CFGNode? = null, endIndex: Int = 1, label: String = ""): DfaBranchResult {
+        if (begin != null) nodeVisitorState.addNode(begin)
         while (true) {
-            val node = visitorState.nextNode()
-            if (node == null || node.index == endIndex) return
-            with(node.data) {
+            val node = nodeVisitorState.nextNode()
+            if (node == null || node.index == endIndex) return DfaBranchResult.Ok
+            val result = with(node.data) {
                 when {
-                    this is CFGNodeData.AST && this.element != null -> visitAstNode(this.element, node, visitorState)
-                    this is CFGNodeData.Dummy -> visitDummyNode(node, visitorState)
-                    else -> updateNextState(node, visitorState)
+                    this is CFGNodeData.AST && this.element != null -> visitAstNode(this.element, node)
+                    this is CFGNodeData.Dummy -> visitDummyNode(node)
+                    else -> updateNextState(node)
                 }
+            }
+            when (result) {
+                DfaBranchResult.Ok -> {
+                }
+                is Continue -> return if (label == result.label) DfaBranchResult.Ok else result
+                else -> return result
             }
         }
     }
 
-    private fun updateNextState(node: CFGNode, visitorState: NodeVisitorState, nextNode: CFGNode? = node.nextNode) {
-        if (nextNode == null) return
-        visitorState.addNode(nextNode)
-        mergeStates(node, nextNode)
+    private fun updateNextState(node: CFGNode, nextNode: CFGNode? = node.nextNode): DfaBranchResult {
+        if (nextNode == null) return DfaBranchResult.Ok
+        val result = mergeStates(node, nextNode)
+        if (result == DfaBranchResult.Ok) {
+            nodeVisitorState.addNode(nextNode)
+        }
+        return result
     }
 
     private fun getStateWithCheck(index: Int): DfaMemoryState = states[index] ?: error("Index $index")
+    private fun getStateWithCheck(node: CFGNode): DfaMemoryState = getStateWithCheck(node.index)
+    private fun setState(node: CFGNode, state: DfaMemoryState) = setState(node.index, state)
     private fun setState(index: Int, state: DfaMemoryState) {
         states.put(index, state)
         resultState = state
     }
 
-    private fun mergeStates(nodeFrom: CFGNode, nodeTo: CFGNode) {
-        val currentState = states[nodeFrom.index] ?: return
-        mergeState(currentState, nodeTo)
+    private fun mergeStates(nodeFrom: CFGNode, nodeTo: CFGNode): DfaBranchResult {
+        val currentState = states[nodeFrom.index] ?: error("Couldn't find current state")
+        return mergeState(currentState, nodeTo)
     }
 
-    private fun mergeState(state: DfaMemoryState, nodeTo: CFGNode) {
+    private fun mergeState(state: DfaMemoryState, nodeTo: CFGNode): DfaBranchResult {
         val stateFromNextNode = states[nodeTo.index]
-        val nextState = if (stateFromNextNode != null) state.unite(stateFromNextNode) else state
-        setState(nodeTo.index, nextState)
+        return if (stateFromNextNode != null) {
+            if (state == stateFromNextNode) {
+                DfaBranchResult.IdenticalState
+            } else {
+                setState(nodeTo, state.unite(stateFromNextNode))
+                DfaBranchResult.Ok
+            }
+        } else {
+            setState(nodeTo, state)
+            DfaBranchResult.Ok
+        }
     }
 
-    private fun visitAstNode(element: RsElement, node: CFGNode, visitorState: NodeVisitorState) = when (element) {
+    private fun visitAstNode(element: RsElement, node: CFGNode): DfaBranchResult = when (element) {
         //TODO visit stmt (example function args)
-        is RsLetDecl -> visitLetDeclNode(node, element, visitorState)
-        is RsBinaryExpr -> visitBinExpr(node, element, visitorState)
-        is RsRetExpr -> {
-        }
-        is RsExpr -> tryVisitControlFlow(element, node, visitorState)
-        else -> updateNextState(node, visitorState)
+        is RsLetDecl -> visitLetDeclNode(node, element)
+        is RsBinaryExpr -> visitBinExpr(node, element)
+        is RsRetExpr -> Return(getStateWithCheck(node))
+        is RsExprStmt -> visitExprStmt(node, element)
+        is RsExpr -> tryVisitControlFlow(element, node)
+        else -> updateNextState(node)
     }
 
-    private fun visitBinExpr(node: CFGNode, expr: RsBinaryExpr, visitorState: NodeVisitorState) {
-        val state = getStateWithCheck(node.index)
-        when (expr.operatorType) {
-            is AssignmentOp -> visitAssignmentBinOp(expr, state, node, visitorState)
-            is BoolOp -> tryVisitControlFlow(expr, node, visitorState)
-            else -> updateNextState(node, visitorState)
+    private fun visitExprStmt(node: CFGNode, expr: RsExprStmt): DfaBranchResult {
+        val expr = expr.expr.skipParenExprDown()
+        return when (expr) {
+            is RsBreakExpr -> visitBreakExpr(expr, node)
+            is RsContExpr -> visitContExpr(expr, node)
+            else -> updateNextState(node)
         }
     }
 
-    private fun tryVisitControlFlow(expr: RsExpr, node: CFGNode, visitorState: NodeVisitorState) {
+    private fun visitBreakExpr(expr: RsBreakExpr, node: CFGNode): DfaBranchResult =
+        Break(expr.label?.text?.substring(1) ?: "", getStateWithCheck(node))
+
+    private fun visitContExpr(expr: RsContExpr, node: CFGNode): DfaBranchResult =
+        Continue(expr.label?.text?.substring(1) ?: "", getStateWithCheck(node))
+
+    private fun visitBinExpr(node: CFGNode, expr: RsBinaryExpr): DfaBranchResult {
+        val state = getStateWithCheck(node)
+        return when (expr.operatorType) {
+            is AssignmentOp -> visitAssignmentBinOp(expr, state, node)
+            is BoolOp -> tryVisitControlFlow(expr, node)
+            else -> updateNextState(node)
+        }
+    }
+
+    private fun tryVisitControlFlow(expr: RsExpr, node: CFGNode): DfaBranchResult {
         val parent = expr.skipParenExprUp().parent
-        when (parent) {
-            is RsCondition -> visitCondition(expr, parent, node, visitorState)
-            is RsMatchExpr -> visitMatchExpr(expr, parent, node, visitorState)
-            is RsTryExpr -> visitTryExpr(expr, parent, node, visitorState)
-            else -> updateNextState(node, visitorState)
+        return when (parent) {
+            is RsCondition -> visitCondition(expr, parent, node)
+            is RsMatchExpr -> visitMatchExpr(expr, parent, node)
+            is RsTryExpr -> visitTryExpr(expr, parent, node)
+            else -> updateNextState(node)
         }
     }
 
-    private fun visitTryExpr(expr: RsExpr, tryExpr: RsTryExpr, node: CFGNode, visitorState: NodeVisitorState) {
+    private fun visitTryExpr(expr: RsExpr, tryExpr: RsTryExpr, node: CFGNode): DfaBranchResult {
         // TODO ? now do nothing
-        updateNextState(node, visitorState, node.firstOutNode)
+        return updateNextState(node, node.firstOutNode)
     }
 
-    private fun visitCondition(expr: RsExpr, condition: RsCondition, node: CFGNode, visitorState: NodeVisitorState) {
+    private fun visitCondition(expr: RsExpr, condition: RsCondition, node: CFGNode): DfaBranchResult {
         val parent = condition.parent
-        when (parent) {
-            is RsIfExpr -> visitIfExpr(expr, parent, node, visitorState)
-            else -> updateNextState(node, visitorState)
+        return when (parent) {
+            is RsIfExpr -> visitIfExpr(expr, parent, node)
+            else -> updateNextState(node)
         }
     }
 
-    private fun visitIfExpr(expr: RsExpr, ifExpr: RsIfExpr, node: CFGNode, visitorState: NodeVisitorState) {
-        val ifNode = visitorState.getNodeFromElement(ifExpr)
-        val state = getStateWithCheck(node.index)
+    private fun visitIfExpr(expr: RsExpr, ifExpr: RsIfExpr, node: CFGNode): DfaBranchResult {
+        val ifNode = nodeVisitorState.getNodeFromElement(ifExpr)
+        val state = getStateWithCheck(node)
         val (trueBranch, falseBranch) = node.firstControlFlowSplit ?: error("Couldn't find control flow split")
         val value = tryEvaluateExpr(expr, state)
 
-        when (value.threeState) {
-            ThreeState.YES -> updateNextState(node, visitorState, trueBranch)
-            ThreeState.NO -> updateNextState(node, visitorState, falseBranch)
+        return when (value.threeState) {
+            ThreeState.YES -> updateNextState(node, trueBranch)
+            ThreeState.NO -> updateNextState(node, falseBranch)
             ThreeState.UNSURE -> {
-                visitBranch(trueBranch, state.intersect(value.trueState), visitorState, ifNode.index + 1)
-                visitBranch(falseBranch, state.intersect(value.falseState), visitorState, ifNode.index + 1)
-                updateNextState(ifNode, visitorState)
+                visitBranch(trueBranch, state.intersect(value.trueState), ifNode.index)
+                visitBranch(falseBranch, state.intersect(value.falseState), ifNode.index)
+                updateNextState(ifNode)
             }
         }
     }
 
-    private fun visitMatchExpr(expr: RsExpr, matchExpr: RsMatchExpr, node: CFGNode, visitorState: NodeVisitorState) {
-        val matchNode = visitorState.getNodeFromElement(matchExpr)
-        val state = getStateWithCheck(node.index)
+    private fun visitMatchExpr(expr: RsExpr, matchExpr: RsMatchExpr, node: CFGNode): DfaBranchResult {
+        val matchNode = nodeVisitorState.getNodeFromElement(matchExpr)
+        val state = getStateWithCheck(node)
         val nodes = node.outgoingNodes
-        nodes.forEach { visitBranch(it, state, visitorState, matchNode.index) }
-        updateNextState(matchNode, visitorState)
+        nodes.forEach {
+            //TODO check result
+            visitBranch(it, state, matchNode.index)
+        }
+        return updateNextState(matchNode)
     }
 
-    private fun visitBranch(node: CFGNode, state: DfaMemoryState, visitorState: NodeVisitorState, endIndex: Int) {
-        setState(node.index, state)
-        visitorState.addNode(node)
-        visitBranch(visitorState, endIndex)
+    private fun visitBranch(node: CFGNode, state: DfaMemoryState, endIndex: Int): DfaBranchResult {
+        setState(node, state)
+        return visitBranch(node, endIndex)
     }
 
     private fun tryEvaluateExpr(expr: RsExpr?, state: DfaMemoryState): DfaCondition {
@@ -307,27 +344,27 @@ class DataFlowRunner(val function: RsFunction) {
         }
     }
 
-    private fun visitLetDeclNode(node: CFGNode, element: RsLetDecl, visitorState: NodeVisitorState) {
+    private fun visitLetDeclNode(node: CFGNode, element: RsLetDecl): DfaBranchResult {
         val pat = element.pat
         when (pat) {
             is RsPatIdent -> {
-                val state = getStateWithCheck(node.index)
+                val state = getStateWithCheck(node)
                 val bin = pat.patBinding
                 val expr = element.expr
                 // TODO add type check
                 val value = if (expr != null) valueFromExpr(expr, state) else valueFactory.createTypeValue(bin.type)
-                setState(node.index, state.plus(bin, value))
+                setState(node, state.plus(bin, value))
             }
             is RsPatTup -> {
-                var state = getStateWithCheck(node.index)
+                var state = getStateWithCheck(node)
                 val values = valuesFromTuple(element.expr, state)
                 pat.patList.forEachIndexed { index, it ->
                     state = state.plus((it as? RsPatIdent)?.patBinding, values.getOrElse(index) { DfaUnknownValue })
                 }
-                setState(node.index, state)
+                setState(node, state)
             }
         }
-        updateNextState(node, visitorState)
+        return updateNextState(node)
     }
 
     private fun valuesFromTuple(element: RsExpr?, state: DfaMemoryState): List<DfaValue> {
@@ -405,16 +442,13 @@ class DataFlowRunner(val function: RsFunction) {
         else -> null
     }
 
-    private fun visitAssignmentBinOp(expr: RsBinaryExpr, state: DfaMemoryState, node: CFGNode, visitorState: NodeVisitorState) {
+    private fun visitAssignmentBinOp(expr: RsBinaryExpr, state: DfaMemoryState, node: CFGNode): DfaBranchResult {
         val variable = variable(expr.left, state)
         if (variable != null) {
             val value = valueFromExpr(expr.right, state)
-            val nextNode = node.nextNode ?: return
-            visitorState.addNode(nextNode)
-            mergeState(state.plus(variable, value), nextNode)
-        } else {
-            updateNextState(node, visitorState)
+            setState(node, state.plus(variable, value))
         }
+        return updateNextState(node)
     }
 
     private fun variable(expr: RsExpr, state: DfaMemoryState): Variable? {
@@ -423,65 +457,60 @@ class DataFlowRunner(val function: RsFunction) {
         return expr.toVariable()
     }
 
-    private fun visitDummyNode(node: CFGNode, visitorState: NodeVisitorState) {
-        val nextNode = visitorState.getNode(node.index + 1)
+    private fun visitDummyNode(node: CFGNode): DfaBranchResult {
+        val nextNode = nodeVisitorState.getNode(node.index + 1)
         val expr = nextNode.data.element
-        when (expr) {
-            is RsLoopExpr -> visitLoop(expr, node, nextNode, visitorState)
-            is RsWhileExpr -> visitWhile(expr, node, nextNode, visitorState)
-            is RsForExpr -> visitFor(expr, node, nextNode, visitorState)
-            else -> updateNextState(node, visitorState)
+        return when (expr) {
+            is RsLoopExpr -> visitLoop(expr, node, nextNode)
+            is RsWhileExpr -> visitWhile(expr, node, nextNode)
+            is RsForExpr -> visitFor(expr, node, nextNode)
+            else -> updateNextState(node)
         }
     }
 
-    private fun visitLoop(expr: RsLoopExpr, dummyNode: CFGNode, loopNode: CFGNode, visitorState: NodeVisitorState) {
-        updateNextState(dummyNode, visitorState)
-        visitBranch(visitorState, dummyNode.index)
+    private fun visitLoop(expr: RsLoopExpr, dummyNode: CFGNode, loopNode: CFGNode): DfaBranchResult {
+        updateNextState(dummyNode)
+        // TODO 1 loop?
+        val result = visitBranch(endIndex = dummyNode.index)
+        return when (result) {
+            is Break -> {
+                setState(loopNode, result.state)
+                visitBranch(loopNode)
+            }
+            else -> result
+        }
     }
 
-    private fun visitWhile(whileExpr: RsWhileExpr, dummyNode: CFGNode, whileNode: CFGNode, visitorState: NodeVisitorState) {
-        updateNextState(dummyNode, visitorState)
-        visitBranch(visitorState, whileNode.index)
-
+    private fun visitWhile(whileExpr: RsWhileExpr, dummyNode: CFGNode, whileNode: CFGNode): DfaBranchResult {
+        updateNextState(dummyNode)
+        visitBranch(endIndex = whileNode.index)
         val expr = whileExpr.condition?.expr
         if (expr != null) {
             val state = getStateWithCheck(whileNode.index)
             val value = tryEvaluateExpr(expr, state)
         }
         // TODO: check expr and visit block
-        updateNextState(whileNode, visitorState)
+        return updateNextState(whileNode)
     }
 
     //TODO: check expr return
-    private fun visitFor(expr: RsForExpr, dummyNode: CFGNode, forNode: CFGNode, visitorState: NodeVisitorState) {
-        updateNextState(dummyNode, visitorState)
-        visitBranch(visitorState, forNode.index)
+    private fun visitFor(expr: RsForExpr, dummyNode: CFGNode, forNode: CFGNode): DfaBranchResult {
+        updateNextState(dummyNode)
+        visitBranch(endIndex = forNode.index)
         // TODO: check expr and visit block
-        updateNextState(forNode, visitorState)
+        return updateNextState(forNode)
     }
 }
 
-// TODO get rid of this class
 private class NodeVisitorState(block: RsBlock) {
-    //    private val visited = hashSetOf<CFGNode>()
     private val cfg = buildFor(block)
     private val table = cfg.buildLocalIndex()
     private val queue = Queue<CFGNode>(2)
-//    val unvisitedElements: Set<RsElement> get() = table.entries.filter { it.value.firstOrNull { node -> node in visited } == null }.map { it.key }.toSet()
 
-    init {
-        queue.addLast(cfg.entry)
-    }
+    fun nextNode(): CFGNode? = if (queue.isEmpty) null else queue.pullFirst()
+    fun addNode(node: CFGNode) = queue.addLast(node)
 
-    fun nextNode(): CFGNode? {
-        if (queue.isEmpty) return null
-        val node = queue.pullFirst()
-//        visited += node
-        return node
-    }
-
-    fun addNode(node: CFGNode): Unit = queue.addLast(node)
-
+    val startNode: CFGNode = cfg.entry
     fun getNode(index: Int): CFGNode = cfg.graph.getNode(index)
     fun getNodeFromElement(element: RsElement): CFGNode = table[element]?.firstOrNull()
         ?: error("couldn't find node for '${element.text}'")
