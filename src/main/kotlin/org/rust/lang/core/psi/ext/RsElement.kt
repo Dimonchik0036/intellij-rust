@@ -60,6 +60,9 @@ val RsElement.containingCargoTarget: CargoWorkspace.Target?
 
 val RsElement.containingCargoPackage: CargoWorkspace.Package? get() = containingCargoTarget?.pkg
 
+val PsiElement.isEdition2018: Boolean get() =
+    contextOrSelf<RsElement>()?.containingCargoTarget?.edition == CargoWorkspace.Edition.EDITION_2018
+
 /**
  * It is possible to match value with constant-like element, e.g.
  *      ```
@@ -74,7 +77,7 @@ val RsElement.containingCargoPackage: CargoWorkspace.Package? get() = containing
  * Constant-like element can be: real constant, static variable, and enum variant without fields.
  */
 val RsElement.isConstantLike: Boolean
-    get() = this is RsConstant || (this is RsEnumVariant && blockFields == null && tupleFields == null)
+    get() = this is RsConstant || (this is RsEnumVariant && isFieldless)
 
 fun RsElement.findDependencyCrateRoot(dependencyName: String): RsFile? {
     return containingCargoPackage

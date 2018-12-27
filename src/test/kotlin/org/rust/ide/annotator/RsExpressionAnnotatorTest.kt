@@ -51,6 +51,9 @@ class RsExpressionAnnotatorTest : RsAnnotationTestBase() {
             bar: i32
         }
 
+        #[derive(Default)]
+        struct T(i32, i32);
+
         struct Empty {}
 
         enum E {
@@ -66,13 +69,36 @@ class RsExpressionAnnotatorTest : RsAnnotationTestBase() {
                 bar: 11,
             };
 
+            let _ = T {
+                0: 92,
+                1: 11,
+                <error descr="No such field">2</error>: 62,
+            };
+
             let _ = S {
                 foo: 92,
                 ..S::default()
             };
 
+            let _ = T {
+                0: 92,
+                ..T::default()
+            };
+
+            let foo = 42;
+            let bar = 24;
+
+            let _ = S {
+                foo,
+                bar
+            };
+
             let _ = <error descr="Some fields are missing">S</error> {
                 foo: 92,
+            };
+
+            let _ = <error descr="Some fields are missing">T</error> {
+                0: 92,
             };
 
             let _ = <error descr="Some fields are missing">S</error> {
@@ -80,10 +106,21 @@ class RsExpressionAnnotatorTest : RsAnnotationTestBase() {
                 <error descr="Duplicate field">foo</error>: 2,
             };
 
+            let _ = <error descr="Some fields are missing">T</error> {
+                0: 1,
+                <error descr="Duplicate field">0</error>: 2,
+            };
+
             let _ = S {
                 foo: 1,
                 <error descr="Duplicate field">foo</error>: 2,
                 ..S::default()
+            };
+
+            let _ = T {
+                0: 1,
+                <error descr="Duplicate field">0</error>: 2,
+                ..T::default()
             };
 
             let _ = Empty { };
@@ -112,101 +149,4 @@ class RsExpressionAnnotatorTest : RsAnnotationTestBase() {
             let _ = U <error descr="Union expressions should have exactly one field">{ a: 92, b: 92.0}</error>;
         }
     """)
-
-    fun `test need unsafe function`() = checkErrors("""
-        struct S;
-
-        impl S {
-            unsafe fn foo(&self) { return; }
-        }
-
-        fn main() {
-            let s = S;
-            <error descr="Call to unsafe function requires unsafe function or block [E0133]">s.foo()</error>;
-        }
-    """)
-
-    fun `test need unsafe block`() = checkErrors("""
-        struct S;
-
-        impl S {
-            unsafe fn foo(&self) { return; }
-        }
-
-        fn main() {
-            {
-                let s = S;
-                <error descr="Call to unsafe function requires unsafe function or block [E0133]">s.foo()</error>;
-            }
-        }
-    """)
-
-    fun `test need unsafe 2`() = checkErrors("""
-        unsafe fn foo() { return; }
-
-        fn main() {
-            <error>foo()</error>;
-        }
-    """)
-
-    fun `test external ABI is unsafe`() = checkErrors("""
-        extern "C" { fn foo(); }
-
-        fn main() {
-            <error descr="Call to unsafe function requires unsafe function or block [E0133]">foo()</error>;
-        }
-    """)
-
-    fun `test is unsafe block`() = checkErrors("""
-        unsafe fn foo() {}
-
-        fn main() {
-            unsafe {
-                {
-                    foo();
-                }
-            }
-        }
-    """)
-
-    fun `test is unsafe function`() = checkErrors("""
-        unsafe fn foo() {}
-
-        fn main() {
-            unsafe {
-                fn bar() {
-                    <error>foo()</error>;
-                }
-            }
-        }
-    """)
-
-    fun `test unsafe call unsafe`() = checkErrors("""
-        unsafe fn foo() {}
-        unsafe fn bar() { foo(); }
-    """)
-
-    fun `test pointer dereference`() = checkErrors("""
-        fn main() {
-            let char_ptr: *const char = 42 as *const _;
-            let val = <error descr="Dereference of raw pointer requires unsafe function or block [E0133]">*char_ptr</error>;
-        }
-    """)
-
-    fun `test pointer dereference in unsafe block`() = checkErrors("""
-        fn main() {
-            let char_ptr: *const char = 42 as *const _;
-            let val = unsafe { *char_ptr };
-        }
-    """)
-
-    fun `test pointer dereference in unsafe fn`() = checkErrors("""
-        fn main() {
-        }
-        unsafe fn foo() {
-            let char_ptr: *const char = 42 as *const _;
-            let val = *char_ptr;
-        }
-    """)
-
 }

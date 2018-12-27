@@ -137,6 +137,15 @@ class RsBorrowCheckerMovesTest : RsInspectionsTestBase(RsBorrowCheckerInspection
         }
     """, checkWarn = false)
 
+    fun `test move in struct literal`() = checkByText("""
+        struct S;
+        struct T { s1: S, s2: S }
+        fn main() {
+            let s = S;
+            let t = T { s1: s, s2: <error descr="Use of moved value">s<caret></error> };
+        }
+    """, checkWarn = false)
+
     fun `test no move error E0382 when matching path`() = checkByText("""
         enum Kind { A, B }
         pub struct DeadlineError(Kind);
@@ -275,6 +284,13 @@ class RsBorrowCheckerMovesTest : RsInspectionsTestBase(RsBorrowCheckerInspection
     fun `test no move error E0507 on copyable type parameter`() = checkByText("""
         fn foo<X: Copy>(x: &[X]) -> X {
             x[0]
+        }
+    """, checkWarn = false)
+
+    @ProjectDescriptor(WithStdlibRustProjectDescriptor::class)
+    fun `test no move error E0507 on copyable array`() = checkByText("""
+        fn copy(arr: &[i32; 4]) -> [i32; 4] {
+            *arr
         }
     """, checkWarn = false)
 }

@@ -40,6 +40,7 @@ HybridEidolon
 idubrov
 isamborskiy
 JakubAdamWieczorek
+Jezza
 johnthagen
 jonas-schievink
 Keats
@@ -92,5 +93,6 @@ Undin
 vasily-kirichenko
 vitvakatu
 vlad20012
+webdesus
 winger
 zjhmale

@@ -9,8 +9,8 @@
     ]]></description>
 
     <change-notes><![CDATA[
-        <a href="https://intellij-rust.github.io/2018/12/10/changelog-88.html">
-                 https://intellij-rust.github.io/2018/12/10/changelog-88.html
+        <a href="https://intellij-rust.github.io/2018/12/25/changelog-89.html">
+                 https://intellij-rust.github.io/2018/12/25/changelog-89.html
     ]]>
     </change-notes>
 
@@ -167,6 +167,8 @@
         <annotator language="Rust" implementationClass="org.rust.ide.annotator.RsExpressionAnnotator"/>
         <annotator language="Rust" implementationClass="org.rust.ide.annotator.RsErrorAnnotator"/>
         <annotator language="Rust" implementationClass="org.rust.ide.annotator.RsSyntaxErrorsAnnotator"/>
+        <annotator language="Rust" implementationClass="org.rust.ide.annotator.RsEdition2018KeywordsAnnotator"/>
+        <annotator language="Rust" implementationClass="org.rust.ide.annotator.RsUnsafeExpressionAnnotator"/>
         <externalAnnotator language="Rust" implementationClass="org.rust.ide.annotator.RsCargoCheckAnnotator"/>
         <highlightRangeExtension implementation="org.rust.ide.annotator.RsErrorAnnotator"/>
 
@@ -632,6 +634,10 @@
         </intentionAction>
         <intentionAction>
             <className>org.rust.ide.intentions.NestUseStatementsIntention</className>
+            <category>Rust</category>
+        </intentionAction>
+        <intentionAction>
+            <className>org.rust.ide.intentions.ChopParameterListIntention</className>
             <category>Rust</category>
         </intentionAction>
 

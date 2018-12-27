@@ -351,6 +351,12 @@ class RsExpressionTypeInferenceTest : RsTypificationTestBase() {
         } //^ !
     """)
 
+    fun `test await macro argument`() = testExpr("""
+        fn main() {
+            let a = await!(42);
+        }                //^ i32
+    """)
+
     fun `test enum variant A`() = testExpr("""
         enum E { A(i32), B { val: bool }, C }
         fn main() {
@@ -802,6 +808,20 @@ class RsExpressionTypeInferenceTest : RsTypificationTestBase() {
         fn main() {
             S { f: 1 };
         }        //^ i32
+    """)
+
+    fun `test resolved named field expr`() = testExpr("""
+        struct S { f: u8 }
+        fn main() {
+            S { f: 1 };
+        }        //^ u8
+    """)
+
+    fun `test resolved positional field expr`() = testExpr("""
+        struct S(u8);
+        fn main() {
+            S { 0: 1 };
+        }        //^ u8
     """)
 
     fun `test struct with alias`() = testExpr("""

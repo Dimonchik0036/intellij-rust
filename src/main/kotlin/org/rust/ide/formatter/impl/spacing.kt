@@ -114,6 +114,8 @@ fun createSpacingBuilder(commonSettings: CommonCodeStyleSettings, rustSettings: 
         .betweenInside(IDENTIFIER, TUPLE_FIELDS, ENUM_VARIANT).spaces(0)
         .betweenInside(IDENTIFIER, VARIANT_DISCRIMINANT, ENUM_VARIANT).spaces(1)
 
+    val spacesAroundAssocTypeBinding = if (rustSettings.SPACE_AROUND_ASSOC_TYPE_BINDING) 1 else 0
+
     return sb2
         //== types
         .afterInside(LIFETIME, REF_LIKE_TYPE).spaceIf(true)
@@ -123,7 +125,7 @@ fun createSpacingBuilder(commonSettings: CommonCodeStyleSettings, rustSettings: 
         .after(TYPE_QUAL).spaces(0)
         .betweenInside(FOR, LT, FOR_LIFETIMES).spacing(0, 0, 0, true, 0)
         .around(FOR_LIFETIMES).spacing(1, 1, 0, true, 0)
-        .aroundInside(EQ, ASSOC_TYPE_BINDING).spaces(0)
+        .aroundInside(EQ, ASSOC_TYPE_BINDING).spaces(spacesAroundAssocTypeBinding)
 
         //?Sized
         .betweenInside(ts(Q), ts(BOUND), POLYBOUND).spaces(0)
@@ -133,7 +135,7 @@ fun createSpacingBuilder(commonSettings: CommonCodeStyleSettings, rustSettings: 
         .beforeInside(LBRACK, INDEX_EXPR).spaces(0)
         .afterInside(VALUE_PARAMETER_LIST, LAMBDA_EXPR).spacing(1, 1, 0, true, 1)
         .between(MATCH_ARM, MATCH_ARM).spacing(1, 1, if (rustSettings.ALLOW_ONE_LINE_MATCH) 0 else 1, true, 1)
-        .before(ELSE_BRANCH).spacing(1, 1, 0, false, 0)
+        .between(BLOCK, ELSE_BRANCH).spacing(1, 1, 0, false, 0)
         .betweenInside(ELSE, BLOCK, ELSE_BRANCH).spacing(1, 1, 0, false, 0)
 
         //== macros

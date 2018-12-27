@@ -91,6 +91,9 @@ tailrec fun Ty.isSized(): Boolean {
     }
 }
 
+val Ty.isSelf: Boolean
+    get() = this is TyTypeParameter && this.parameter is TyTypeParameter.Self
+
 fun Ty.walk(): TypeIterator = TypeIterator(this)
 
 class TypeIterator(root: Ty) : Iterator<Ty> {
@@ -160,6 +163,7 @@ fun Ty.isMovesByDefault(lookup: ImplLookup): Boolean =
     when (this) {
         is TyUnknown, is TyReference, is TyPointer, is TyFunction -> false
         is TyTuple -> types.any { it.isMovesByDefault(lookup) }
+        is TyArray -> base.isMovesByDefault(lookup)
         is TyTypeParameter -> !(parameter == TyTypeParameter.Self || lookup.isCopy(this))
         else -> !lookup.isCopy(this)
     }

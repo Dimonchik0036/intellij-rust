@@ -35,12 +35,14 @@ class RsHighlightingAnnotator : Annotator {
 
         val isPrimitiveType = element is RsPath && TyPrimitive.fromPath(element) != null
 
-        val color = if (isPrimitiveType) {
-            RsColor.PRIMITIVE_TYPE
-        } else {
-            val ref = element.reference.resolve() ?: return null
-            // Highlight the element dependent on what it's referencing.
-            colorFor(ref)
+        val color = when {
+            isPrimitiveType -> RsColor.PRIMITIVE_TYPE
+            element.parent is RsMacroCall -> RsColor.MACRO
+            else -> {
+                val ref = element.reference.resolve() ?: return null
+                // Highlight the element dependent on what it's referencing.
+                colorFor(ref)
+            }
         }
         return color?.let { element.referenceNameElement.textRange to it }
     }
@@ -88,7 +90,7 @@ private fun colorFor(element: RsElement): RsColor? = when (element) {
     is RsEnumVariant -> RsColor.ENUM_VARIANT
     is RsExternCrateItem -> RsColor.CRATE
     is RsConstant -> RsColor.CONSTANT
-    is RsFieldDecl -> RsColor.FIELD
+    is RsNamedFieldDecl -> RsColor.FIELD
     is RsFunction -> when (element.owner) {
         is RsAbstractableOwner.Foreign, is RsAbstractableOwner.Free -> RsColor.FUNCTION
         is RsAbstractableOwner.Trait, is RsAbstractableOwner.Impl ->
@@ -120,9 +122,7 @@ private fun partToHighlight(element: RsElement): TextRange? {
     }
 
     if (element is RsMacroCall) {
-        var range = element.referenceNameElement.textRange ?: return null
-        range = range.union(element.excl.textRange)
-        return range
+        return element.excl.textRange
     }
 
     val name = when (element) {
@@ -134,7 +134,7 @@ private fun partToHighlight(element: RsElement): TextRange? {
         is RsEnumItem -> element.identifier
         is RsEnumVariant -> element.identifier
         is RsExternCrateItem -> element.identifier
-        is RsFieldDecl -> element.identifier
+        is RsNamedFieldDecl -> element.identifier
         is RsFunction -> element.identifier
         is RsMethodCall -> element.referenceNameElement
         is RsModDeclItem -> element.identifier

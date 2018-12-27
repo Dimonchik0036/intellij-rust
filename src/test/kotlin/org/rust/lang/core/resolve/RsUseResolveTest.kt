@@ -333,6 +333,18 @@ class RsUseResolveTest : RsResolveTestBase() {
         }
     """)
 
+    fun `test nested braces`() = checkByCode("""
+        mod foo {
+            pub fn bar() {}
+        }        //X
+
+        use {{foo::{{bar}}}};
+
+        fn main() {
+            bar();
+        } //^
+    """)
+
     fun `test colon braces`() = checkByCode("""
         struct Spam;
               //X
@@ -543,6 +555,18 @@ class RsUseResolveTest : RsResolveTestBase() {
             use super::MyError;
             fn bar() -> MyError { MyError::SomeError }
         }                                   //^
+    """)
+
+    fun `test private reexport with crate keyword`() = checkByCode("""
+        mod a {
+            pub struct Foo;
+        }            //X
+        use a::Foo;
+        mod b {
+            use crate::Foo;
+
+            type T = Foo;
+        }          //^
     """)
 
     fun `test can't import methods`() = checkByCode("""

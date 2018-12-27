@@ -6,6 +6,7 @@
 package org.rust.ide.annotator
 
 import com.intellij.codeInsight.daemon.impl.HighlightRangeExtension
+import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.lang.annotation.AnnotationHolder
 import com.intellij.lang.annotation.AnnotationSession
 import com.intellij.lang.annotation.Annotator
@@ -14,7 +15,6 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import org.rust.cargo.project.workspace.CargoWorkspace.Edition
 import org.rust.cargo.project.workspace.PackageOrigin
-import org.rust.cargo.toolchain.RustChannel
 import org.rust.ide.annotator.fixes.AddFeatureAttributeFix
 import org.rust.ide.annotator.fixes.AddModuleFileFix
 import org.rust.ide.annotator.fixes.AddTurbofishFix
@@ -22,15 +22,18 @@ import org.rust.ide.refactoring.RsNamesValidator.Companion.RESERVED_LIFETIME_NAM
 import org.rust.lang.core.CRATE_IN_PATHS
 import org.rust.lang.core.CRATE_VISIBILITY_MODIFIER
 import org.rust.lang.core.CompilerFeature
-import org.rust.lang.core.FeatureState.ACCEPTED
-import org.rust.lang.core.FeatureState.ACTIVE
+import org.rust.lang.core.FeatureAvailability.CAN_BE_ADDED
+import org.rust.lang.core.FeatureAvailability.NOT_AVAILABLE
+import org.rust.lang.core.NON_MODRS_MODS
 import org.rust.lang.core.psi.*
 import org.rust.lang.core.psi.ext.*
 import org.rust.lang.core.resolve.Namespace
 import org.rust.lang.core.resolve.namespaces
-import org.rust.lang.core.stubs.index.RsFeatureIndex
 import org.rust.lang.core.types.inference
-import org.rust.lang.core.types.ty.*
+import org.rust.lang.core.types.ty.Ty
+import org.rust.lang.core.types.ty.TyUnit
+import org.rust.lang.core.types.ty.isSelf
+import org.rust.lang.core.types.ty.isSized
 import org.rust.lang.core.types.type
 import org.rust.lang.utils.RsDiagnostic
 import org.rust.lang.utils.RsErrorCode
@@ -55,7 +58,7 @@ class RsErrorAnnotator : Annotator, HighlightRangeExtension {
             override fun visitModItem(o: RsModItem) = checkDuplicates(holder, o)
             override fun visitPatBinding(o: RsPatBinding) = checkPatBinding(holder, o)
             override fun visitPath(o: RsPath) = checkPath(holder, o)
-            override fun visitFieldDecl(o: RsFieldDecl) = checkDuplicates(holder, o)
+            override fun visitNamedFieldDecl(o: RsNamedFieldDecl) = checkDuplicates(holder, o)
             override fun visitRetExpr(o: RsRetExpr) = checkRetExpr(holder, o)
             override fun visitTraitItem(o: RsTraitItem) = checkDuplicates(holder, o)
             override fun visitTypeAlias(o: RsTypeAlias) = checkTypeAlias(holder, o)
@@ -64,9 +67,6 @@ class RsErrorAnnotator : Annotator, HighlightRangeExtension {
             override fun visitVis(o: RsVis) = checkVis(holder, o)
             override fun visitVisRestriction(o: RsVisRestriction) = checkVisRestriction(holder, o)
             override fun visitBinaryExpr(o: RsBinaryExpr) = checkBinary(holder, o)
-            override fun visitCallExpr(o: RsCallExpr) = checkCallExpr(holder, o)
-            override fun visitMethodCall(o: RsMethodCall) = checkMethodCallExpr(holder, o)
-            override fun visitUnaryExpr(o: RsUnaryExpr) = checkUnaryExpr(holder, o)
             override fun visitExternCrateItem(o: RsExternCrateItem) = checkExternCrate(holder, o)
             override fun visitDotExpr(o: RsDotExpr) = checkDotExpr(holder, o)
             override fun visitArrayType(o: RsArrayType) = collectDiagnostics(holder, o)
@@ -90,28 +90,13 @@ class RsErrorAnnotator : Annotator, HighlightRangeExtension {
         checkReferenceIsPublic(field, o, holder)
     }
 
-    private fun checkStaticUsageIsSafe(ref: RsReferenceElement, holder: AnnotationHolder) {
-        val element = ref.reference.resolve() as? RsConstant ?: return
-        val constantType = when {
-            element.kind == RsConstantKind.MUT_STATIC -> "mutable"
-            element.kind == RsConstantKind.STATIC && element.parent is RsForeignModItem -> "extern"
-            else -> return
-        }
-
-        val expr = ref.ancestorOrSelf<RsExpr>() ?: return
-        if (expr.isInUnsafeBlockOrFn()) return
-
-        RsDiagnostic.UnsafeError(expr, "Use of $constantType static is unsafe and requires unsafe function or block")
-            .addToHolder(holder)
-    }
-
     private fun checkReferenceIsPublic(ref: RsReferenceElement, o: PsiElement, holder: AnnotationHolder) {
         val element = ref.reference.resolve() as? RsVisible ?: return
         val oMod = o.contextStrict<RsMod>() ?: return
         if (element.isVisibleFrom(oMod)) return
 
         val error = when {
-            element is RsFieldDecl -> {
+            element is RsNamedFieldDecl -> {
                 val structName = element.ancestorStrict<RsStructItem>()?.crateRelativePath?.removePrefix("::") ?: ""
                 RsDiagnostic.StructFieldAccessError(ref, ref.referenceName, structName)
             }
@@ -131,57 +116,6 @@ class RsErrorAnnotator : Annotator, HighlightRangeExtension {
             }
         }
         error.addToHolder(holder)
-    }
-
-    private fun checkMethodCallExpr(holder: AnnotationHolder, o: RsMethodCall) {
-        val fn = o.reference.resolve() as? RsFunction ?: return
-
-        if (fn.isUnsafe) {
-            checkUnsafeCall(holder, o.parentDotExpr)
-        }
-    }
-
-    private fun checkCallExpr(holder: AnnotationHolder, o: RsCallExpr) {
-        val path = (o.expr as? RsPathExpr)?.path ?: return
-        val fn = path.reference.resolve() as? RsFunction ?: return
-
-        if (fn.isUnsafe) {
-            checkUnsafeCall(holder, o)
-        }
-    }
-
-    private fun PsiElement.isInUnsafeBlockOrFn(parentsToSkip: Int = 0): Boolean {
-        val parent = this.ancestors
-            .drop(parentsToSkip)
-            .find {
-                when (it) {
-                    is RsBlockExpr -> it.unsafe != null
-                    is RsFunction -> true
-                    else -> false
-                }
-            } ?: return false
-
-        return parent is RsBlockExpr || (parent is RsFunction && parent.isUnsafe)
-    }
-
-    private fun checkUnsafeCall(holder: AnnotationHolder, o: RsExpr) {
-        if (!o.isInUnsafeBlockOrFn(/* skip the expression itself*/ 1)) {
-            RsDiagnostic.UnsafeError(o, "Call to unsafe function requires unsafe function or block").addToHolder(holder)
-        }
-    }
-
-    private fun checkUnsafePtrDereference(holder: AnnotationHolder, o: RsUnaryExpr) {
-        if (o.expr?.type !is TyPointer) return
-
-        if (!o.isInUnsafeBlockOrFn()) {
-            RsDiagnostic.UnsafeError(o, "Dereference of raw pointer requires unsafe function or block").addToHolder(holder)
-        }
-    }
-
-    private fun checkUnaryExpr(holder: AnnotationHolder, unaryExpr: RsUnaryExpr) {
-        if (unaryExpr.operatorType == UnaryOperator.DEREF) {
-            checkUnsafePtrDereference(holder, unaryExpr)
-        }
     }
 
     private fun checkBaseType(holder: AnnotationHolder, type: RsBaseType) {
@@ -230,7 +164,6 @@ class RsErrorAnnotator : Annotator, HighlightRangeExtension {
             }
         }
 
-        checkStaticUsageIsSafe(path, holder)
         checkReferenceIsPublic(path, path, holder)
     }
 
@@ -270,26 +203,20 @@ class RsErrorAnnotator : Annotator, HighlightRangeExtension {
         holder: AnnotationHolder,
         element: PsiElement,
         feature: CompilerFeature,
-        presentableFeatureName: String
+        presentableFeatureName: String,
+        vararg fixes: LocalQuickFix
     ) {
-        val rsElement = element.ancestorOrSelf<RsElement>() ?: return
-        val version = rsElement.cargoProject?.rustcInfo?.version ?: return
-
-        if (feature.state == ACTIVE || feature.state == ACCEPTED && version.semver < feature.since) {
-            val diagnostic = if (version.channel != RustChannel.NIGHTLY) {
-                RsDiagnostic.ExperimentalFeature(element, presentableFeatureName)
-            } else {
-                val crateRoot = rsElement.crateRoot ?: return
-                val attrs = RsFeatureIndex.getFeatureAttributes(element.project, feature.name)
-                if (attrs.none { it.crateRoot == crateRoot }) {
-                    val fix = AddFeatureAttributeFix(feature.name, crateRoot)
-                    RsDiagnostic.ExperimentalFeature(element, presentableFeatureName, fix)
-                } else {
-                    null
-                }
+        val availability = feature.availability(element)
+        val diagnostic = when (availability) {
+            NOT_AVAILABLE -> RsDiagnostic.ExperimentalFeature(element, presentableFeatureName, fixes.toList())
+            CAN_BE_ADDED -> {
+                val fix = AddFeatureAttributeFix(feature.name, element)
+                RsDiagnostic.ExperimentalFeature(element, presentableFeatureName, listOf(*fixes, fix))
             }
-            diagnostic?.addToHolder(holder)
+            else -> return
         }
+
+        diagnostic.addToHolder(holder)
     }
 
     private fun checkLabel(holder: AnnotationHolder, label: RsLabel) {
@@ -306,7 +233,7 @@ class RsErrorAnnotator : Annotator, HighlightRangeExtension {
         checkDuplicates(holder, modDecl)
         val pathAttribute = modDecl.pathAttribute
 
-        // mods inside blocks require explicit path  attribute
+        // mods inside blocks require explicit path attribute
         // https://github.com/rust-lang/rust/pull/31534
         if (modDecl.isLocal && pathAttribute == null) {
             val message = "Cannot declare a non-inline module inside a block unless it has a path attribute"
@@ -315,19 +242,21 @@ class RsErrorAnnotator : Annotator, HighlightRangeExtension {
         }
 
         if (!modDecl.containingMod.ownsDirectory && pathAttribute == null) {
-            // We don't want to show the warning if there is no cargo project
-            // associated with the current module. Without it we can't know for
-            // sure that a mod is not a directory owner.
-            if (modDecl.cargoWorkspace != null) {
-                holder.createErrorAnnotation(modDecl, "Cannot declare a new module at this location")
-                    .registerFix(AddModuleFileFix(modDecl, expandModuleFirst = true))
+            val featureAvailability = NON_MODRS_MODS.availability(modDecl)
+            if (featureAvailability == NOT_AVAILABLE || featureAvailability == CAN_BE_ADDED) {
+                // We don't want to show the warning if there is no cargo project
+                // associated with the current module. Without it we can't know for
+                // sure that a mod is not a directory owner.
+                if (modDecl.cargoWorkspace != null) {
+                    val addModule = AddModuleFileFix(modDecl, expandModuleFirst = true)
+                    checkFeature(holder, modDecl, NON_MODRS_MODS, "mod statements in non-mod.rs files", addModule)
+                }
+                return
             }
-            return
         }
 
         if (modDecl.reference.resolve() == null) {
-            holder.createErrorAnnotation(modDecl, "Unresolved module")
-                .registerFix(AddModuleFileFix(modDecl, expandModuleFirst = false))
+            RsDiagnostic.ModuleNotFound(modDecl).addToHolder(holder)
         }
     }
 
@@ -461,7 +390,7 @@ class RsErrorAnnotator : Annotator, HighlightRangeExtension {
     }
 
     private fun isInEnumVariantField(o: RsVis): Boolean {
-        val field = o.parent as? RsFieldDecl
+        val field = o.parent as? RsNamedFieldDecl
             ?: o.parent as? RsTupleFieldDecl
             ?: return false
         return field.parent.parent is RsEnumVariant
@@ -487,7 +416,7 @@ private fun checkDuplicates(holder: AnnotationHolder, element: RsNameIdentifierO
     val name = element.name!!
     val identifier = element.nameIdentifier ?: element
     val message = when {
-        element is RsFieldDecl -> RsDiagnostic.DuplicateFieldError(identifier, name)
+        element is RsNamedFieldDecl -> RsDiagnostic.DuplicateFieldError(identifier, name)
         element is RsEnumVariant -> RsDiagnostic.DuplicateEnumVariantError(identifier, name)
         element is RsLifetimeParameter -> RsDiagnostic.DuplicateLifetimeError(identifier, name)
         element is RsPatBinding && owner is RsValueParameterList -> RsDiagnostic.DuplicateBindingError(identifier, name)
@@ -603,7 +532,7 @@ private fun checkTypesAreSized(holder: AnnotationHolder, fn: RsFunction) {
 
     fun isError(ty: Ty): Boolean = !ty.isSized() &&
         // Self type in trait method is not an error
-        !(owner is RsAbstractableOwner.Trait && ty is TyTypeParameter && ty.parameter is TyTypeParameter.Self)
+        !(owner is RsAbstractableOwner.Trait && ty.isSelf)
 
     for (arg in arguments) {
         val typeReference = arg.typeReference ?: continue
